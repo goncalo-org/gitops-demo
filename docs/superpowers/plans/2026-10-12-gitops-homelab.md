@@ -6,7 +6,7 @@
 
 **Architecture:** `scripts/bootstrap.sh` creates the clusters, installs Argo CD into `kind-dev` with Helm, registers both clusters as labelled cluster Secrets, and applies one root Application. From then on everything is reconciled from GitHub: the dev cluster follows the `release` branch and the prod cluster follows `main`. ApplicationSets with a cluster generator create one Traefik and one podinfo app per cluster, reading the branch from each cluster Secret's `branch` annotation and environment-specific values from `envs/<env>/*.yaml`.
 
-**Tech Stack:** kind v0.32, kubectl, Helm v3.18, Argo CD (chart `argo/argo-cd` 10.10.3), Traefik (chart `traefik/traefik` 41.7.1), Homepage (chart `jameswynn/homepage` 2.1.0), podinfo image `ghcr.io/stefanprodan/podinfo`, bash, make.
+**Tech Stack:** kind v0.32, kubectl, Helm v3.18, curl, Argo CD (chart `argo/argo-cd` 10.10.3), Traefik (chart `traefik/traefik` 41.7.1), Homepage (chart `jameswynn/homepage` 2.1.0), podinfo image `ghcr.io/stefanprodan/podinfo`, bash, make.
 
 **Spec:** `docs/superpowers/specs/2026-10-12-gitops-homelab-design.md`
 
@@ -931,7 +931,7 @@ Expected: `READY 2/2` (prod has 2 replicas; `kind-dev` shows `1/1`).
 **Files:**
 - Create: `argocd/homepage-app.yaml`
 - Create: `envs/dev/homepage.yaml`
-- Modify: `scripts/bootstrap.sh` (add `argocd` to prereqs, add `create_portal_token`, add `print_summary`, update `main`)
+- Modify: `scripts/bootstrap.sh` (add `create_portal_token` and `print_summary`, update `main`)
 
 - [ ] **Step 1: Confirm the portal check is red**
 
@@ -940,13 +940,7 @@ Expected: `FAIL http://portal.dev.localhost:8080/ (got 404)`. Traefik answers, b
 
 - [ ] **Step 2: Add the portal token step to bootstrap**
 
-In `scripts/bootstrap.sh`, change the prereq loop to include `argocd`:
-
-```bash
-  for bin in docker kind kubectl helm argocd; do
-```
-
-Add these functions above `main()`:
+In `scripts/bootstrap.sh`, add these functions above `main()`. The token is created through Argo CD's REST API, not `argocd login`: the CLI's plaintext probe resets the kubectl port-forward.
 
 ```bash
 # Creates a readonly Argo CD API token for the Homepage widget, stored only in-cluster.
@@ -956,16 +950,20 @@ create_portal_token() {
     echo "portal token exists, skipping"; return
   fi
 
-  local pw pf cfg token
+  local pw token
   pw=$(kubectl --context "$DEV" -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
-  cfg=$(mktemp)   # keep the admin session out of ~/.config/argocd
   kubectl --context "$DEV" -n argocd port-forward svc/argocd-server 18080:80 >/dev/null 2>&1 &
-  pf=$!
-  trap 'kill $pf 2>/dev/null; rm -f "$cfg"' RETURN
+  pf=$!   # global so the EXIT trap can still see it
+  trap 'kill ${pf:-} 2>/dev/null || true' RETURN EXIT
   until curl -s -o /dev/null http://127.0.0.1:18080/healthz; do sleep 1; done
 
-  argocd login 127.0.0.1:18080 --plaintext --grpc-web --username admin --password "$pw" --config "$cfg" >/dev/null
-  token=$(argocd account generate-token --account portal --grpc-web --config "$cfg")
+  # REST instead of `argocd login`: the CLI's plaintext probe resets the kubectl port-forward.
+  local jwt
+  jwt=$(curl -fsS -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$pw\"}" \
+    http://127.0.0.1:18080/api/v1/session | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  token=$(curl -fsS -H "Authorization: Bearer $jwt" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18080/api/v1/account/portal/token \
+    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  [ -n "$token" ] || { echo "failed to generate portal token"; return 1; }
   kubectl --context "$DEV" -n homepage create secret generic homepage-argocd-token --from-literal=token="$token"
 }
 
@@ -1178,7 +1176,7 @@ Local Kubernetes + GitOps homelab: two kind clusters (`dev`, `prod`) managed by 
 
 ## Prerequisites
 
-Docker (running), `kind`, `kubectl`, `helm`, `argocd`, `make`. Optional: `gh`, for the promotion flow.
+Docker (running), `kind`, `kubectl`, `helm`, `curl`, `make`. Optional: `gh`, for the promotion flow.
 
 Behind a TLS-intercepting proxy (e.g. Zscaler), pass its root CA so the kind nodes can pull images:
 `EXTRA_CA_FILE=/path/to/proxy-root-ca.pem make up`. Keep that file out of this repo.
