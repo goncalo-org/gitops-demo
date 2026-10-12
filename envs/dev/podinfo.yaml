@@ -1,0 +1,10 @@
+replicaCount: 1
+image:
+  tag: "6.9.2"
+message: "dev"
+ingress:
+  host: podinfo.dev.localhost
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi

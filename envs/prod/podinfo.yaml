@@ -1,0 +1,13 @@
+replicaCount: 2
+image:
+  tag: "6.9.0"
+message: "prod"
+ingress:
+  host: podinfo.prod.localhost
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
