@@ -7,15 +7,16 @@ TIMEOUT=${TIMEOUT:-300}
 failures=0
 
 wait_for_apps() {
-  local deadline=$((SECONDS + TIMEOUT)) bad
+  local deadline=$((SECONDS + TIMEOUT)) apps bad
   echo "waiting up to ${TIMEOUT}s for Argo CD apps to be Synced/Healthy..."
   while :; do
-    bad=$(kubectl --context "$DEV" -n argocd get applications.argoproj.io \
-      -o jsonpath='{range .items[*]}{.metadata.name} {.status.sync.status} {.status.health.status}{"\n"}{end}' \
-      | awk 'NF && ($2 != "Synced" || $3 != "Healthy")')
-    [[ -z "$bad" ]] && { echo "ok   all apps Synced/Healthy"; return; }
+    apps=$(kubectl --context "$DEV" -n argocd get applications.argoproj.io \
+      -o jsonpath='{range .items[*]}{.metadata.name} {.status.sync.status} {.status.health.status}{"\n"}{end}')
+    bad=$(awk 'NF && ($2 != "Synced" || $3 != "Healthy")' <<<"$apps")
+    # More than just `root`: the ApplicationSets must have generated their apps.
+    [[ -z "$bad" && $(grep -c . <<<"$apps") -gt 1 ]] && { echo "ok   all apps Synced/Healthy"; return; }
     if (( SECONDS > deadline )); then
-      echo "FAIL apps not Synced/Healthy:"; echo "$bad"
+      echo "FAIL apps not Synced/Healthy:"; echo "${bad:-only $(grep -c . <<<"$apps") app(s) found}"
       failures=$((failures + 1)); return
     fi
     sleep 5

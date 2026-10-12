@@ -587,15 +587,16 @@ TIMEOUT=${TIMEOUT:-300}
 failures=0
 
 wait_for_apps() {
-  local deadline=$((SECONDS + TIMEOUT)) bad
+  local deadline=$((SECONDS + TIMEOUT)) apps bad
   echo "waiting up to ${TIMEOUT}s for Argo CD apps to be Synced/Healthy..."
   while :; do
-    bad=$(kubectl --context "$DEV" -n argocd get applications.argoproj.io \
-      -o jsonpath='{range .items[*]}{.metadata.name} {.status.sync.status} {.status.health.status}{"\n"}{end}' \
-      | awk 'NF && ($2 != "Synced" || $3 != "Healthy")')
-    [[ -z "$bad" ]] && { echo "ok   all apps Synced/Healthy"; return; }
+    apps=$(kubectl --context "$DEV" -n argocd get applications.argoproj.io \
+      -o jsonpath='{range .items[*]}{.metadata.name} {.status.sync.status} {.status.health.status}{"\n"}{end}')
+    bad=$(awk 'NF && ($2 != "Synced" || $3 != "Healthy")' <<<"$apps")
+    # More than just `root`: the ApplicationSets must have generated their apps.
+    [[ -z "$bad" && $(grep -c . <<<"$apps") -gt 1 ]] && { echo "ok   all apps Synced/Healthy"; return; }
     if (( SECONDS > deadline )); then
-      echo "FAIL apps not Synced/Healthy:"; echo "$bad"
+      echo "FAIL apps not Synced/Healthy:"; echo "${bad:-only $(grep -c . <<<"$apps") app(s) found}"
       failures=$((failures + 1)); return
     fi
     sleep 5
@@ -653,8 +654,8 @@ Run: `chmod +x scripts/smoke-test.sh`
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `make test`
-Expected: FAIL. `ok   all apps Synced/Healthy` (there are no apps yet), then a `FAIL` line for each of the 6 URLs (got `000`) and for both in-cluster checks, ending with `8 check(s) failed`. This shows the test catches a missing lab.
+Run: `TIMEOUT=5 make test`
+Expected: FAIL. `FAIL apps not Synced/Healthy:` / `only 0 app(s) found` (no apps yet), then a `FAIL` line for each of the 6 URLs (got `000`) and for both in-cluster checks (got `000`), ending with `9 check(s) failed`. This shows the test catches a missing lab.
 
 - [ ] **Step 3: Commit**
 
