@@ -6,6 +6,8 @@ Local Kubernetes + GitOps homelab: two kind clusters (`dev`, `prod`) managed by 
 
 Docker (running), `kind`, `kubectl`, `helm`, `curl`, `make`. Optional: `gh`, for the promotion flow.
 
+Docker needs at least 4 CPUs and 6 GB of memory for both clusters (Colima: `colima start --cpu 4 --memory 6`).
+
 Behind a TLS-intercepting proxy (e.g. Zscaler), pass its root CA so the kind nodes can pull images:
 `EXTRA_CA_FILE=/path/to/proxy-root-ca.pem make up`. Keep that file out of this repo.
 
@@ -21,7 +23,7 @@ make down   # delete both clusters
 | URL | What |
 |---|---|
 | http://portal.dev.localhost:8080 | Homepage portal |
-| http://argocd.dev.localhost:8080 | Argo CD (user `admin`; password printed by `make up`) |
+| http://argocd.dev.localhost:8080 | Argo CD (user `admin`; `make up` prints the command to read the password) |
 | http://traefik.dev.localhost:8080/dashboard/ | Traefik dashboard, dev |
 | http://traefik.prod.localhost:9080/dashboard/ | Traefik dashboard, prod |
 | http://podinfo.dev.localhost:8080 | podinfo, dev |
@@ -47,3 +49,15 @@ make down   # delete both clusters
 3. PR `release → main`: prod syncs.
 
 Merge with a merge commit (not squash) so the branches never diverge. Every app auto-syncs with prune and self-heal.
+
+Argo CD polls Git about every 3 minutes. To sync right away, press Refresh in the Argo CD UI or run `kubectl --context kind-dev -n argocd annotate application <app> argocd.argoproj.io/refresh=normal --overwrite`.
+
+## Using your own fork
+
+Argo CD pulls from the public URL in the manifests and has no repository credentials, so a fork must be public and keep the `develop`, `release` and `main` branches. Point the manifests at it, then commit and promote that change before `make up`:
+
+```bash
+grep -rl goncalo-org/gitops-demo bootstrap argocd | xargs sed -i '' 's#goncalo-org/gitops-demo#<you>/<repo>#'
+```
+
+The promotion PRs need `gh auth login` (or the GitHub web UI).
