@@ -23,6 +23,20 @@ create_clusters() {
   done
 }
 
+# Optional: trust an extra root CA in the kind nodes' containerd (e.g. a TLS-intercepting
+# corporate proxy). Usage: EXTRA_CA_FILE=/path/to/ca.pem make up
+trust_extra_ca() {
+  [[ -n "${EXTRA_CA_FILE:-}" ]] || return 0
+  [[ -r "$EXTRA_CA_FILE" ]] || { echo "EXTRA_CA_FILE not readable: $EXTRA_CA_FILE"; exit 1; }
+  for node in dev-control-plane prod-control-plane; do
+    if docker exec -i "$node" cmp -s /usr/local/share/ca-certificates/extra-ca.crt - <"$EXTRA_CA_FILE"; then
+      echo "extra CA already trusted on $node, skipping"; continue
+    fi
+    docker exec -i "$node" sh -c 'cat > /usr/local/share/ca-certificates/extra-ca.crt && update-ca-certificates >/dev/null && systemctl restart containerd' <"$EXTRA_CA_FILE"
+    echo "extra CA trusted on $node"
+  done
+}
+
 install_argocd() {
   helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
   helm repo update argo >/dev/null
@@ -46,6 +60,8 @@ metadata:
   labels:
     argocd.argoproj.io/secret-type: cluster
     env: dev
+  annotations:
+    branch: release   # dev deploys what is on the release branch
 stringData:
   name: dev
   server: https://kubernetes.default.svc
@@ -100,6 +116,8 @@ metadata:
   labels:
     argocd.argoproj.io/secret-type: cluster
     env: prod
+  annotations:
+    branch: main      # prod deploys what is on main
 stringData:
   name: prod
   server: https://prod-control-plane:6443
@@ -110,6 +128,7 @@ EOF
 main() {
   check_prereqs
   create_clusters
+  trust_extra_ca
   install_argocd
   register_clusters
 }

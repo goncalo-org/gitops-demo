@@ -1,6 +1,4 @@
 replicaCount: 2
-image:
-  tag: "6.9.0"
 message: "prod"
 ingress:
   host: podinfo.prod.localhost

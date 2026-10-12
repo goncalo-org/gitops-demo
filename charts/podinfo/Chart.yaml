@@ -3,4 +3,4 @@ name: podinfo
 description: Sample web app for the GitOps homelab
 type: application
 version: 0.1.0
-appVersion: "6.9.2"
+appVersion: "6.9.0"
