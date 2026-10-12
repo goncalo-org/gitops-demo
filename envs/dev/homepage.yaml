@@ -1,0 +1,54 @@
+env:
+  - name: HOMEPAGE_ALLOWED_HOSTS
+    value: portal.dev.localhost:8080
+  - name: HOMEPAGE_VAR_ARGOCD_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: homepage-argocd-token
+        key: token
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - host: portal.dev.localhost
+        paths:
+          - path: /
+            pathType: Prefix
+
+config:
+  bookmarks: []
+  widgets: []
+  # Widget URLs are seen from inside the pod: use in-cluster Services or
+  # Docker-network node names, never *.localhost (that is the pod itself).
+  services:
+    - GitOps:
+        - Argo CD:
+            href: http://argocd.dev.localhost:8080
+            description: Manages dev and prod
+            widget:
+              type: argocd
+              url: http://argocd-server.argocd.svc
+              key: "{{HOMEPAGE_VAR_ARGOCD_TOKEN}}"
+    - Ingress:
+        - Traefik dev:
+            href: http://traefik.dev.localhost:8080/dashboard/
+            widget:
+              type: traefik
+              url: http://dev-control-plane:30900
+        - Traefik prod:
+            href: http://traefik.prod.localhost:9080/dashboard/
+            widget:
+              type: traefik
+              url: http://prod-control-plane:30900
+    - Apps:
+        - podinfo dev:
+            href: http://podinfo.dev.localhost:8080
+            description: Sample app, dev
+        - podinfo prod:
+            href: http://podinfo.prod.localhost:9080
+            description: Sample app, prod
+  settingsString: |
+    title: GitOps Homelab
+    headerStyle: boxed
