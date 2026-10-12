@@ -1,0 +1,11 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dev
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Traefik "web" nodePort → http://*.dev.localhost:8080 (localhost only)
+      - containerPort: 30080
+        hostPort: 8080
+        listenAddress: "127.0.0.1"
+        protocol: TCP
