@@ -1263,6 +1263,7 @@ If `metrics-prod` or `logs-prod` fails while dev passes, the prod → dev hop is
 - Modify: `scripts/lint.sh` (assert the OTel env vars)
 - Modify: `charts/podinfo/values.yaml`, `charts/podinfo/templates/deployment.yaml`
 - Modify: `envs/dev/traefik.yaml`, `envs/prod/traefik.yaml`
+- Modify: `envs/common/alloy.yaml` (log filter from the Task 4 review)
 
 - [ ] **Step 1: Lint expects instrumentation (red)**
 
@@ -1348,10 +1349,29 @@ helm template traefik traefik/traefik --version 41.7.1 -n traefik -f envs/prod/t
 ```
 Expected: `--tracing.otlp.grpc.endpoint=alloy.observability.svc:4317` (and related flags), `--metrics.prometheus.addRoutersLabels=true`, and `prometheus.io/port: "9100"`.
 
+- [ ] **Step 3b: Stop shipping the observability stack's own logs (Task 4 review)**
+
+In `envs/common/alloy.yaml`, inside `discovery.relabel "pod_logs"`, add this rule as the FIRST rule (before the namespace rule). It avoids the self-logging loop and protects Loki's 2 GiB:
+```
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex         = "observability|kube-system"
+          action        = "drop"
+        }
+```
+Also replace the file's first comment line in `content:` (`      // One agent per cluster: ...`) with these two lines:
+```
+      // One agent per cluster: metrics, logs and traces, all labelled with the cluster name
+      // (CLUSTER env var, set per environment) and shipped to the backends in dev. Assumes one node per cluster: on more nodes, scope discovery to the agent's node or enable clustering.
+```
+(Keep the existing second comment line `// (CLUSTER env var, ...)` removed, since the replacement includes it.)
+
+Re-check that the config formats: render with `helm template alloy grafana/alloy --version 1.13.1 -n observability -f envs/common/alloy.yaml -f envs/prod/alloy.yaml`, extract `config.alloy`, and pipe it into `docker run --rm -i --entrypoint sh grafana/alloy:v1.20.1 -c 'cat > /tmp/c.alloy && /bin/alloy fmt /tmp/c.alloy >/dev/null && echo FMT-OK'`.
+
 - [ ] **Step 4: Commit, push, deploy to dev, then prod**
 
 ```bash
-git commit -m "feat: OTLP traces and scrape annotations for podinfo and Traefik" -m "Co-Authored-By: <your model> <noreply@anthropic.com>" -- scripts/lint.sh charts/podinfo/values.yaml charts/podinfo/templates/deployment.yaml envs/dev/traefik.yaml envs/prod/traefik.yaml
+git commit -m "feat: OTLP traces and scrape annotations for podinfo and Traefik" -m "Co-Authored-By: <your model> <noreply@anthropic.com>" -- scripts/lint.sh charts/podinfo/values.yaml charts/podinfo/templates/deployment.yaml envs/dev/traefik.yaml envs/prod/traefik.yaml envs/common/alloy.yaml
 git push origin develop
 ```
 Merge a `develop → release` PR titled "release: tracing" and refresh all apps. Then merge a `release → main` PR titled "promote: tracing" and refresh all apps again.
