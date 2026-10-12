@@ -17,5 +17,5 @@ assert() {
   echo "ok [$env]"
 }
 
-assert dev  "replicas: 1" "host: podinfo.dev.localhost"  "ingressClassName: traefik" "value: \"dev\""
-assert prod "replicas: 2" "host: podinfo.prod.localhost" "ingressClassName: traefik" "value: \"prod\"" "limits:"
+assert dev  "replicas: 1" "host: podinfo.dev.localhost"  "ingressClassName: traefik" "value: \"dev\""  "PODINFO_OTEL_SERVICE_NAME" "prometheus.io/scrape"
+assert prod "replicas: 2" "host: podinfo.prod.localhost" "ingressClassName: traefik" "value: \"prod\"" "PODINFO_OTEL_SERVICE_NAME" "prometheus.io/scrape" "limits:"
