@@ -67,7 +67,7 @@ The upstream charts for Loki and Tempo can't pin NodePorts, so all four are defi
   - Admin credentials come from Secret `grafana-admin`, which bootstrap creates once with a random password. The chart's own random password would change on every Argo CD render. Anonymous access is off.
   - Provisioned data sources:
     - Prometheus, Loki and Tempo, via their in-cluster Services.
-    - Tempo linked to Loki (trace → logs) and to Prometheus.
+    - Tempo linked to Loki (trace → logs, matched on the cluster).
   - One dashboard from the repo (`platform/observability/dashboards/homelab-overview.json`, loaded by Grafana's dashboard sidecar), **"Homelab overview"**, with a `cluster` variable:
     - CPU and memory by namespace.
     - Pod restarts.
