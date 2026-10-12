@@ -16,3 +16,7 @@ ingressRoute:
     enabled: true
     matchRule: Host(`traefik.prod.localhost`)
     entryPoints: ["web"]
+# Write an address into Ingress status so Argo CD reports Ingresses Healthy
+# (a NodePort Service has no load balancer address to publish).
+additionalArguments:
+  - --providers.kubernetesingress.ingressendpoint.ip=127.0.0.1
