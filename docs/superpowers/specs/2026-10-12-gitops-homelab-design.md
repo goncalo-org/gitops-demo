@@ -16,7 +16,7 @@ A local DevOps homelab for learning Kubernetes and GitOps: two kind clusters (`d
 | GitOps controller | Argo CD, installed in `kind-dev`, manages both clusters | Native multi-cluster, ApplicationSets, UI |
 | Ingress controller | Traefik (Helm) | ingress-nginx was retired in March 2026 |
 | Developer portal | Homepage (gethomepage.dev), `kind-dev` only | Lightweight; Argo CD and Traefik widgets |
-| Git | Public GitHub repo; work on `main`, Argo CD deploys the `release` branch | No repository credentials needed; deploying is an explicit step |
+| Git | Public GitHub repo; work on `develop`; `release` deploys to dev, `main` deploys to prod | No repository credentials needed; each deploy is an explicit PR |
 
 ## Architecture
 
@@ -80,10 +80,11 @@ gitops-demo/
 The only step that isn't GitOps. In order:
 1. Check prerequisites: docker running; `kind`, `kubectl`, `helm` on PATH.
 2. Create `kind-dev` and `kind-prod` from `clusters/*.yaml`, skipping any that already exist.
+   - Optional: if `EXTRA_CA_FILE` is set, install that root CA into both nodes and restart containerd. This is for TLS-intercepting proxies such as Zscaler. The file stays outside the repo.
 3. `helm upgrade --install` Argo CD into `kind-dev` (namespace `argocd`) with `bootstrap/argocd-values.yaml`.
 4. Register clusters as Argo CD cluster Secrets (`argocd.argoproj.io/secret-type: cluster`):
-   - `dev`: server `https://kubernetes.default.svc`, label `env: dev`.
-   - `prod`: create a ServiceAccount `argocd-manager` with cluster-admin plus a long-lived token Secret in `kind-prod`; write a cluster Secret in `kind-dev` with server `https://prod-control-plane:6443`, the bearer token and CA data, and label `env: prod`.
+   - `dev`: server `https://kubernetes.default.svc`, label `env: dev`, annotation `branch: release`.
+   - `prod`: create a ServiceAccount `argocd-manager` with cluster-admin plus a long-lived token Secret in `kind-prod`; write a cluster Secret in `kind-dev` with server `https://prod-control-plane:6443`, the bearer token and CA data, label `env: prod`, and annotation `branch: main`.
 5. Generate a token for the readonly `portal` Argo CD account and store it as Secret `homepage-argocd-token` in namespace `homepage` on `kind-dev`.
 6. Apply `bootstrap/root-app.yaml`.
 7. Print the URLs and the command to read the Argo CD admin password.
@@ -91,18 +92,17 @@ The only step that isn't GitOps. In order:
 The script uses `set -euo pipefail` and is idempotent, so re-running it resumes after a partial failure.
 
 ### Root app and ApplicationSets
-- `root-app` syncs the `argocd/` directory from the `release` branch. All Applications use `targetRevision: release`.
-- `traefik-appset` and `podinfo-appset` use the **cluster generator** (selector: label `env` exists) and create `<app>-{{name}}` per cluster, reading `envs/{{metadata.labels.env}}/<app>.yaml`.
+- `root-app` syncs the `argocd/` directory from the `release` branch, so new or changed ApplicationSets land via `develop → release`. The Homepage app (dev only) also follows `release`.
+- `traefik-appset` and `podinfo-appset` use the **cluster generator** (selector: label `env` exists) and create `<app>-{{name}}` per cluster, reading `envs/{{metadata.labels.env}}/<app>.yaml` from the branch in the cluster's `branch` annotation (dev → `release`, prod → `main`).
 - Traefik uses a multi-source Application: the upstream chart (`https://traefik.github.io/charts`) plus `$values` from this repo.
 - All apps: automated sync with `prune: true`, `selfHeal: true`, and `CreateNamespace=true`.
 
 ### podinfo chart (`charts/podinfo`)
-A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replicaCount`, `image.tag`, `resources`, `ingress.host`.
+A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replicaCount`, `image.tag`, `resources`, `ingress.host`. `image.tag` is set once in `charts/podinfo/values.yaml`, shared by both environments, so promoting a branch moves the version. `envs/<env>/podinfo.yaml` holds only settings specific to each environment.
 
 | | dev | prod |
 |---|---|---|
 | replicaCount | 1 | 2 |
-| image.tag | newest | promoted |
 | ingress.host | `podinfo.dev.localhost` | `podinfo.prod.localhost` |
 | resources | small requests | requests + limits |
 
@@ -126,9 +126,17 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 - Widgets use the Docker-network node hostnames, not `*.localhost`: inside a pod, `localhost` is the pod itself. This is the same name resolution Argo CD uses to reach prod.
 
 ## Promotion flow
-Changes merge to `main` first; a `main → release` PR (merge commit, not squash) deploys them.
-1. A PR to `main` changes `image.tag` in `envs/dev/podinfo.yaml`; a `main → release` PR deploys it, and dev syncs. Verify at `podinfo.dev.localhost:8080`.
-2. A PR to `main` sets the same tag in `envs/prod/podinfo.yaml`; a `main → release` PR deploys it, and prod syncs.
+| Branch | Deploys to |
+|---|---|
+| `develop` | nothing (integration) |
+| `release` | dev cluster |
+| `main` | prod cluster |
+
+1. Commit to `develop`, for example bumping `image.tag` in `charts/podinfo/values.yaml`.
+2. A `develop → release` PR deploys it to dev. Verify at `podinfo.dev.localhost:8080`.
+3. A `release → main` PR promotes it to prod.
+
+PRs merge with a merge commit (not squash), so the branches never diverge.
 
 ## Security
 - Port mappings bind to `127.0.0.1` only. The Traefik API nodePort `30900` isn't mapped to the host at all.

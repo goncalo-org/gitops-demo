@@ -4,7 +4,7 @@
 
 **Goal:** Two local kind clusters (`dev`, `prod`) managed from GitHub by one Argo CD, running Traefik, a Helm-charted podinfo app, and a Homepage portal.
 
-**Architecture:** `scripts/bootstrap.sh` creates the clusters, installs Argo CD into `kind-dev` with Helm, registers both clusters as labelled cluster Secrets, and applies one root Application. From then on everything is reconciled from the `release` branch on GitHub: ApplicationSets with a cluster generator create one Traefik and one podinfo app per cluster, using `envs/<env>/*.yaml` for values.
+**Architecture:** `scripts/bootstrap.sh` creates the clusters, installs Argo CD into `kind-dev` with Helm, registers both clusters as labelled cluster Secrets, and applies one root Application. From then on everything is reconciled from GitHub: the dev cluster follows the `release` branch and the prod cluster follows `main`. ApplicationSets with a cluster generator create one Traefik and one podinfo app per cluster, reading the branch from each cluster Secret's `branch` annotation and environment-specific values from `envs/<env>/*.yaml`.
 
 **Tech Stack:** kind v0.32, kubectl, Helm v3.18, Argo CD (chart `argo/argo-cd` 10.10.3), Traefik (chart `traefik/traefik` 41.7.1), Homepage (chart `jameswynn/homepage` 2.1.0), podinfo image `ghcr.io/stefanprodan/podinfo`, bash, make.
 
@@ -14,7 +14,9 @@
 
 ## Read this first
 
-- **Branches:** commit on `main`; Argo CD deploys only the `release` branch on GitHub (`https://github.com/goncalo-org/gitops-demo.git`, public). During Tasks 5–7, deploy by fast-forwarding `release` to `main`: `git push origin main main:release`. From Task 8 on, `release` only moves through `main → release` PRs merged with a merge commit (never squash, so `main` and `release` don't diverge). Work in this checkout, not a worktree: Argo CD never sees local branches. Pushing publishes to a public repo, so confirm with the user once before the first push in Task 5.
+- **Branches:** work happens on `develop`. A `develop → release` PR deploys to the **dev** cluster; a `release → main` PR deploys to **prod**. Argo CD only sees GitHub, never local branches, so work in this checkout, not a worktree. During Tasks 5–7, deploy by fast-forwarding all three branches: `git push origin develop develop:release develop:main`. From Task 8 on, `release` and `main` only move through PRs merged with a merge commit (never squash, so the branches don't diverge). The root app and the Homepage app (dev-only) follow `release`. Pushing to the public repo is approved.
+- **Promotion carries the image tag:** the podinfo image tag lives in `charts/podinfo/values.yaml` (shared). `envs/<env>/podinfo.yaml` holds only settings specific to each environment, so merging a branch moves the version.
+- **Corporate TLS proxy:** this machine's Zscaler proxy intercepts `ghcr.io` and `ecr-public.aws.com`. Run bootstrap as `EXTRA_CA_FILE=$HOME/.config/gitops-demo/extra-ca.pem make up` so the kind nodes trust it (Task 3). That file must never be copied into the repo.
 - **"Tests" here** are `scripts/lint.sh` (chart rendering) and `scripts/smoke-test.sh` (the live lab). The smoke test is written in Task 4, before anything it checks exists. Each later task turns more of its checks green.
 - **Names:** kind clusters are `dev` and `prod`. kubectl contexts are `kind-dev` and `kind-prod`. Node containers on the Docker `kind` network are `dev-control-plane` and `prod-control-plane`.
 - **Ports:** host `127.0.0.1:8080` → dev node `30080`, and host `127.0.0.1:9080` → prod node `30080`. Traefik's API is on nodePort `30900` in both clusters and is **not** mapped to the host.
@@ -114,7 +116,7 @@ name: podinfo
 description: Sample web app for the GitOps homelab
 type: application
 version: 0.1.0
-appVersion: "6.9.2"
+appVersion: "6.9.0"
 ```
 
 `charts/podinfo/values.yaml`:
@@ -124,7 +126,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/stefanprodan/podinfo
-  tag: "6.9.2"
+  # Shared by all environments: promotion moves this value between branches.
+  tag: "6.9.0"
 
 # Shown on the podinfo UI so you can tell environments apart.
 message: ""
@@ -225,8 +228,6 @@ spec:
 
 ```yaml
 replicaCount: 1
-image:
-  tag: "6.9.2"
 message: "dev"
 ingress:
   host: podinfo.dev.localhost
@@ -236,12 +237,10 @@ resources:
     memory: 32Mi
 ```
 
-`envs/prod/podinfo.yaml` (deliberately one version behind dev, so Task 8 can promote):
+`envs/prod/podinfo.yaml`:
 
 ```yaml
 replicaCount: 2
-image:
-  tag: "6.9.0"
 message: "prod"
 ingress:
   host: podinfo.prod.localhost
@@ -422,9 +421,23 @@ notifications:
 
 - [ ] **Step 3: Add the install and registration functions**
 
-In `scripts/bootstrap.sh`, add these two functions above `main()`:
+In `scripts/bootstrap.sh`, add these three functions above `main()`:
 
 ```bash
+# Optional: trust an extra root CA in the kind nodes' containerd (e.g. a TLS-intercepting
+# corporate proxy). Usage: EXTRA_CA_FILE=/path/to/ca.pem make up
+trust_extra_ca() {
+  [[ -n "${EXTRA_CA_FILE:-}" ]] || return 0
+  [[ -r "$EXTRA_CA_FILE" ]] || { echo "EXTRA_CA_FILE not readable: $EXTRA_CA_FILE"; exit 1; }
+  for node in dev-control-plane prod-control-plane; do
+    if docker exec "$node" cmp -s /usr/local/share/ca-certificates/extra-ca.crt - <"$EXTRA_CA_FILE"; then
+      echo "extra CA already trusted on $node, skipping"; continue
+    fi
+    docker exec -i "$node" sh -c 'cat > /usr/local/share/ca-certificates/extra-ca.crt && update-ca-certificates >/dev/null && systemctl restart containerd' <"$EXTRA_CA_FILE"
+    echo "extra CA trusted on $node"
+  done
+}
+
 install_argocd() {
   helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
   helm repo update argo >/dev/null
@@ -448,6 +461,8 @@ metadata:
   labels:
     argocd.argoproj.io/secret-type: cluster
     env: dev
+  annotations:
+    branch: release   # dev deploys what is on the release branch
 stringData:
   name: dev
   server: https://kubernetes.default.svc
@@ -502,6 +517,8 @@ metadata:
   labels:
     argocd.argoproj.io/secret-type: cluster
     env: prod
+  annotations:
+    branch: main      # prod deploys what is on main
 stringData:
   name: prod
   server: https://prod-control-plane:6443
@@ -516,6 +533,7 @@ Replace `main()` with:
 main() {
   check_prereqs
   create_clusters
+  trust_extra_ca
   install_argocd
   register_clusters
 }
@@ -523,11 +541,20 @@ main() {
 
 - [ ] **Step 4: Run it and verify**
 
-Run: `make up`
-Expected: the Helm release `argocd` is deployed and exit code is 0.
+Run: `docker exec prod-control-plane crictl pull ghcr.io/stefanprodan/podinfo:6.9.0`
+Expected (behind the Zscaler proxy): FAIL with `x509: certificate signed by unknown authority`.
+
+Run: `EXTRA_CA_FILE=$HOME/.config/gitops-demo/extra-ca.pem make up`
+Expected: `extra CA trusted on` for both nodes, the Helm release `argocd` is deployed, and exit code is 0. A second run prints `extra CA already trusted on ..., skipping` for both nodes. Without `EXTRA_CA_FILE`, the CA step is a no-op.
+
+Run the `crictl pull` command again.
+Expected: the pull succeeds.
 
 Run: `kubectl --context kind-dev -n argocd get secrets -l argocd.argoproj.io/secret-type=cluster -L env`
 Expected: two rows, `cluster-dev` (ENV `dev`) and `cluster-prod` (ENV `prod`).
+
+Run: `kubectl --context kind-dev -n argocd get secrets -l argocd.argoproj.io/secret-type=cluster -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.branch}{"\n"}{end}'`
+Expected: `cluster-dev=release` and `cluster-prod=main`.
 
 Run: `kubectl --context kind-dev -n argocd get pods`
 Expected: all pods `Running`.
@@ -640,7 +667,7 @@ git commit -m "test: add end-to-end smoke test for the lab" -m "Co-Authored-By: 
 - Create: `bootstrap/root-app.yaml`
 - Create: `argocd/traefik-appset.yaml`
 - Create: `envs/dev/traefik.yaml`, `envs/prod/traefik.yaml`
-- Modify: `scripts/bootstrap.sh` (apply the root app; update `main`)
+- Modify: `scripts/bootstrap.sh` (apply the root app; update `main()`)
 
 - [ ] **Step 1: Write the Traefik values per environment**
 
@@ -721,7 +748,7 @@ spec:
             valueFiles:
               - '$values/envs/{{index .metadata.labels "env"}}/traefik.yaml'
         - repoURL: https://github.com/goncalo-org/gitops-demo.git
-          targetRevision: release
+          targetRevision: '{{index .metadata.annotations "branch"}}'
           ref: values
       destination:
         server: '{{.server}}'
@@ -766,25 +793,25 @@ In `scripts/bootstrap.sh`, replace `main()` with:
 main() {
   check_prereqs
   create_clusters
+  trust_extra_ca
   install_argocd
   register_clusters
   kubectl --context "$DEV" apply -f bootstrap/root-app.yaml
 }
 ```
 
-- [ ] **Step 4: Commit and push `main` and `release` (Argo CD reads `release` from GitHub)**
+- [ ] **Step 4: Commit and push all three branches (Argo CD reads from GitHub)**
 
-Confirm with the user before this first push to the public repo.
 
 ```bash
 git add bootstrap/root-app.yaml argocd/traefik-appset.yaml envs/dev/traefik.yaml envs/prod/traefik.yaml scripts/bootstrap.sh
 git commit -m "feat: root app and Traefik in dev and prod via ApplicationSet" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push -u origin main main:release
+git push -u origin develop develop:release develop:main
 ```
 
 - [ ] **Step 5: Bootstrap and run the smoke test**
 
-Run: `make up && make test`
+Run: `EXTRA_CA_FILE=$HOME/.config/gitops-demo/extra-ca.pem make up && make test`
 Expected: still FAIL overall, but now these pass:
 ```
 ok   all apps Synced/Healthy
@@ -836,7 +863,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/goncalo-org/gitops-demo.git
-        targetRevision: release
+        targetRevision: '{{index .metadata.annotations "branch"}}'
         path: charts/podinfo
         helm:
           releaseName: podinfo
@@ -858,7 +885,7 @@ spec:
 ```bash
 git add argocd/podinfo-appset.yaml
 git commit -m "feat: deploy podinfo to dev and prod via ApplicationSet" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push origin main main:release
+git push origin develop develop:release develop:main
 kubectl --context kind-dev -n argocd annotate application root argocd.argoproj.io/refresh=normal --overwrite
 ```
 
@@ -940,6 +967,7 @@ Replace `main()` with:
 main() {
   check_prereqs
   create_clusters
+  trust_extra_ca
   install_argocd
   register_clusters
   create_portal_token
@@ -1045,8 +1073,8 @@ spec:
 ```bash
 git add argocd/homepage-app.yaml envs/dev/homepage.yaml scripts/bootstrap.sh
 git commit -m "feat: Homepage portal with Argo CD and Traefik widgets" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push origin main main:release
-make up
+git push origin develop develop:release develop:main
+EXTRA_CA_FILE=$HOME/.config/gitops-demo/extra-ca.pem make up
 kubectl --context kind-dev -n argocd annotate application root argocd.argoproj.io/refresh=normal --overwrite
 make test
 ```
@@ -1064,59 +1092,57 @@ Expected: the Argo CD tile shows app counts (not "API Error"), and the Traefik d
 
 **Files:**
 - Create: `README.md`
-- Modify: `envs/prod/podinfo.yaml` (`image.tag`)
+- Modify: `charts/podinfo/values.yaml` (`image.tag`), `charts/podinfo/Chart.yaml` (`appVersion`)
 
 - [ ] **Step 1: Verify a clean rebuild works**
 
-Run: `make down && make up && make test`
+Run: `make down && EXTRA_CA_FILE=$HOME/.config/gitops-demo/extra-ca.pem make up && make test`
 Expected: `all checks passed`. This proves bootstrap and Git alone recreate the lab.
 
-- [ ] **Step 2: Check prod's version before promotion (red)**
+- [ ] **Step 2: Check both versions before promotion (red)**
 
-Run: `curl -s --resolve podinfo.prod.localhost:9080:127.0.0.1 http://podinfo.prod.localhost:9080/version`
-Expected: JSON containing `"version": "6.9.0"`.
-
-- [ ] **Step 3: Promote dev's version to prod with a PR**
-
-In `envs/prod/podinfo.yaml`, change:
-
-```yaml
-image:
-  tag: "6.9.0"
+Run:
+```bash
+curl -s --resolve podinfo.dev.localhost:8080:127.0.0.1 http://podinfo.dev.localhost:8080/version
+curl -s --resolve podinfo.prod.localhost:9080:127.0.0.1 http://podinfo.prod.localhost:9080/version
 ```
+Expected: both JSON responses contain `"version": "6.9.0"`.
 
-to:
+- [ ] **Step 3: Bump the version on `develop`**
 
-```yaml
-image:
-  tag: "6.9.2"
-```
-
-Then:
+In `charts/podinfo/values.yaml`, change `tag: "6.9.0"` to `tag: "6.9.2"`. In `charts/podinfo/Chart.yaml`, change `appVersion: "6.9.0"` to `appVersion: "6.9.2"`.
 
 ```bash
-git switch -c promote-podinfo-6.9.2
-git commit -am "chore: promote podinfo 6.9.2 to prod" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push -u origin promote-podinfo-6.9.2
-gh pr create --base main --fill
-gh pr merge --merge --delete-branch
-git switch main && git pull
+make lint
+git commit -am "chore: bump podinfo to 6.9.2" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git push origin develop
 ```
 
-Merging to `main` deploys nothing yet. Check that prod is still on 6.9.0 (re-run the Step 2 command), then deploy with a `main → release` PR:
+Pushing `develop` deploys nothing. Re-run the Step 2 commands: both still show `6.9.0`.
+
+- [ ] **Step 4: Deploy to dev with a `develop → release` PR**
 
 ```bash
-gh pr create --base release --head main --title "release: podinfo 6.9.2 to prod" --body "Promote podinfo 6.9.2 to prod."
+gh pr create --base release --head develop --title "release: podinfo 6.9.2 to dev" --body "Deploy podinfo 6.9.2 to the dev cluster."
+gh pr merge --merge
+kubectl --context kind-dev -n argocd annotate application podinfo-dev argocd.argoproj.io/refresh=normal --overwrite
+```
+
+Run the Step 2 commands again (allow up to a minute for the rollout).
+Expected: dev shows `"version": "6.9.2"` and prod still shows `"version": "6.9.0"`.
+
+- [ ] **Step 5: Promote to prod with a `release → main` PR**
+
+```bash
+gh pr create --base main --head release --title "promote: podinfo 6.9.2 to prod" --body "Promote podinfo 6.9.2 from dev to prod."
 gh pr merge --merge
 kubectl --context kind-dev -n argocd annotate application podinfo-prod argocd.argoproj.io/refresh=normal --overwrite
 ```
 
-- [ ] **Step 4: Verify prod was promoted**
-
 Run: `make test && curl -s --resolve podinfo.prod.localhost:9080:127.0.0.1 http://podinfo.prod.localhost:9080/version`
 Expected: `all checks passed`, then JSON containing `"version": "6.9.2"`.
 
-- [ ] **Step 5: Write the README**
+- [ ] **Step 6: Write the README**
 
 `README.md`:
 
@@ -1128,6 +1154,9 @@ Local Kubernetes + GitOps homelab: two kind clusters (`dev`, `prod`) managed by 
 ## Prerequisites
 
 Docker (running), `kind`, `kubectl`, `helm`, `argocd`, `make`. Optional: `gh`, for the promotion flow.
+
+Behind a TLS-intercepting proxy (e.g. Zscaler), pass its root CA so the kind nodes can pull images:
+`EXTRA_CA_FILE=/path/to/proxy-root-ca.pem make up`. Keep that file out of this repo.
 
 ## Usage
 
@@ -1156,21 +1185,26 @@ make down   # delete both clusters
 
 ## Deploying and promoting
 
-Argo CD deploys the `release` branch only. Work lands on `main` first; a `main → release` PR (merged with a merge commit, not squash) is the deploy.
+| Branch | Deploys to |
+|---|---|
+| `develop` | nothing (work happens here) |
+| `release` | dev cluster |
+| `main` | prod cluster |
 
-1. PR to `main`: change `image.tag` in `envs/dev/podinfo.yaml`. Then PR `main → release`; dev syncs. Verify on dev.
-2. PR to `main`: set the same tag in `envs/prod/podinfo.yaml`. Then PR `main → release`; prod syncs.
+1. Commit to `develop`. To change the app version, edit `image.tag` in `charts/podinfo/values.yaml`; settings specific to one environment live in `envs/<env>/`.
+2. PR `develop → release`: dev syncs. Verify on dev.
+3. PR `release → main`: prod syncs.
 
-Every app auto-syncs from `release` with prune and self-heal.
+Merge with a merge commit (not squash) so the branches never diverge. Every app auto-syncs with prune and self-heal.
 ````
 
-- [ ] **Step 6: Commit and push**
+- [ ] **Step 7: Commit and push**
 
 ```bash
 git add README.md
 git commit -m "docs: add README" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push origin main
+git push origin develop
 ```
 
-The README doesn't affect the clusters, so it doesn't need a release PR. It reaches `release` with the next deploy.
+The README doesn't affect the clusters, so it doesn't need a deploy. It reaches `release` and `main` with the next promotion.
 
