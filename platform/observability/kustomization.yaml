@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+resources:
+  - nodeports.yaml
+# Grafana's dashboard sidecar loads every ConfigMap labelled grafana_dashboard=1.
+configMapGenerator:
+  - name: dashboard-homelab-overview
+    files:
+      - dashboards/homelab-overview.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

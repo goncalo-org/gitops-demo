@@ -45,8 +45,8 @@ kind-dev ───────────────────────�
 |---|---|
 | `http://portal.dev.localhost:8080` | Homepage portal |
 | `http://argocd.dev.localhost:8080` | Argo CD UI |
-| `http://traefik.dev.localhost:8080` | Traefik dashboard (dev) |
-| `http://traefik.prod.localhost:9080` | Traefik dashboard (prod) |
+| `http://traefik.dev.localhost:8080/dashboard/` | Traefik dashboard (dev) |
+| `http://traefik.prod.localhost:9080/dashboard/` | Traefik dashboard (prod) |
 | `http://podinfo.dev.localhost:8080` | podinfo (dev) |
 | `http://podinfo.prod.localhost:9080` | podinfo (prod) |
 
@@ -56,6 +56,7 @@ kind-dev ───────────────────────�
 gitops-demo/
 ├── Makefile                  # up | down | lint | test
 ├── scripts/
+│   ├── lint.sh               # helm lint + render each env
 │   ├── bootstrap.sh          # create clusters, install Argo CD, register clusters, apply root app
 │   └── smoke-test.sh         # wait for apps Synced/Healthy, curl every URL
 ├── clusters/
@@ -78,7 +79,7 @@ gitops-demo/
 
 ### Bootstrap (`scripts/bootstrap.sh`, `make up`)
 The only step that isn't GitOps. In order:
-1. Check prerequisites: docker running; `kind`, `kubectl`, `helm` on PATH.
+1. Check prerequisites: docker running; `kind`, `kubectl`, `helm`, `curl` on PATH.
 2. Create `kind-dev` and `kind-prod` from `clusters/*.yaml`, skipping any that already exist.
    - Optional: if `EXTRA_CA_FILE` is set, install that root CA into both nodes and restart containerd. This is for TLS-intercepting proxies such as Zscaler. The file stays outside the repo.
 3. `helm upgrade --install` Argo CD into `kind-dev` (namespace `argocd`) with `bootstrap/argocd-values.yaml`.

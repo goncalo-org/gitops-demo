@@ -36,16 +36,22 @@ check() {
   fi
 }
 
-# check_internal <node>: Traefik API reachable from inside kind-dev, as the portal widgets need.
+# probe <name> <curl args...>: runs curl in a throwaway pod inside kind-dev and prints its output.
 # (Runs a pod and reads its logs: `kubectl run --rm -i` loses stdout in this environment.)
-check_internal() {
-  local node=$1 pod="probe-$1" code
+probe() {
+  local pod="probe-$1"; shift
   kubectl --context "$DEV" delete pod "$pod" --ignore-not-found >/dev/null
   kubectl --context "$DEV" run "$pod" --restart=Never --image=curlimages/curl:8.11.1 --command -- \
-    sh -c "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://$node:30900/api/overview || true" >/dev/null
+    sh -c 'curl -s --max-time 10 "$@" || true' curl "$@" >/dev/null
   kubectl --context "$DEV" wait pod "$pod" --for=jsonpath='{.status.phase}'=Succeeded --timeout=60s >/dev/null 2>&1 || true
-  code=$(kubectl --context "$DEV" logs "$pod" 2>/dev/null || true)
-  kubectl --context "$DEV" delete pod "$pod" --wait=false >/dev/null
+  kubectl --context "$DEV" logs "$pod" 2>/dev/null || true
+  kubectl --context "$DEV" delete pod "$pod" --wait=false >/dev/null || true
+}
+
+# check_internal <node>: Traefik API reachable from inside kind-dev, as the portal widgets need.
+check_internal() {
+  local node=$1 code
+  code=$(probe "$node" -o /dev/null -w '%{http_code}' "http://$node:30900/api/overview")
   if [[ "$code" == "200" ]]; then
     echo "ok   in-cluster http://$node:30900/api/overview"
   else
@@ -54,15 +60,41 @@ check_internal() {
   fi
 }
 
+# check_data <name> <url> <regex> [tries]: a backend in dev must return matching data (polled every 10s).
+check_data() {
+  local name=$1 url=$2 want=$3 tries=${4:-1} i body
+  for ((i = 1; i <= tries; i++)); do
+    body=$(probe "$name" "$url")
+    if grep -qE "$want" <<<"$body"; then echo "ok   $name"; return; fi
+    if (( i < tries )); then sleep 10; fi
+  done
+  echo "FAIL $name: no data from $url (last: ${body:0:120})"
+  failures=$((failures + 1))
+}
+
+PROM=http://dev-control-plane:30909/api/v1/query
+LOKI=http://dev-control-plane:30310/loki/api/v1/query_range
+TEMPO=http://dev-control-plane:30320/api/search
+
 wait_for_apps
 check portal.dev.localhost   8080 /
 check argocd.dev.localhost   8080 /
+check grafana.dev.localhost  8080 /api/health
 check traefik.dev.localhost  8080 /dashboard/
 check traefik.prod.localhost 9080 /dashboard/
 check podinfo.dev.localhost  8080 /
 check podinfo.prod.localhost 9080 /
 check_internal dev-control-plane
 check_internal prod-control-plane
+
+# Telemetry must reach dev's backends; the prod checks prove the cross-cluster hop.
+for _ in 1 2 3; do
+  curl -s -o /dev/null --max-time 5 --resolve podinfo.prod.localhost:9080:127.0.0.1 http://podinfo.prod.localhost:9080/ || true
+done
+check_data metrics-dev  "$PROM?query=up%7Bcluster%3D%22dev%22%7D"  '"value":\[' 6
+check_data metrics-prod "$PROM?query=up%7Bcluster%3D%22prod%22%7D" '"value":\[' 6
+check_data logs-prod    "$LOKI?query=%7Bcluster%3D%22prod%22%7D&limit=1&since=10m" '"values":\[\[' 6
+check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
 
 if (( failures > 0 )); then
   echo "$failures check(s) failed"; exit 1

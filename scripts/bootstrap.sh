@@ -149,12 +149,24 @@ create_portal_token() {
   kubectl --context "$DEV" -n homepage create secret generic homepage-argocd-token --from-literal=token="$token"
 }
 
+# Grafana admin credentials, created once (the chart's own random password would change on every Argo CD render).
+create_grafana_secret() {
+  kubectl --context "$DEV" create namespace observability --dry-run=client -o yaml | kubectl --context "$DEV" apply -f -
+  if kubectl --context "$DEV" -n observability get secret grafana-admin >/dev/null 2>&1; then
+    echo "grafana admin secret exists, skipping"; return
+  fi
+  kubectl --context "$DEV" -n observability create secret generic grafana-admin \
+    --from-literal=admin-user=admin \
+    --from-literal=admin-password="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
+}
+
 print_summary() {
   cat <<'EOF'
 
 Lab is up. Argo CD syncs everything else from GitHub; run `make test` to wait for it.
   Portal        http://portal.dev.localhost:8080
   Argo CD       http://argocd.dev.localhost:8080   (user: admin)
+  Grafana       http://grafana.dev.localhost:8080  (user: admin)
   Traefik dev   http://traefik.dev.localhost:8080/dashboard/
   Traefik prod  http://traefik.prod.localhost:9080/dashboard/
   podinfo dev   http://podinfo.dev.localhost:8080
@@ -162,6 +174,8 @@ Lab is up. Argo CD syncs everything else from GitHub; run `make test` to wait fo
 
 Argo CD admin password:
   kubectl --context kind-dev -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
+Grafana admin password:
+  kubectl --context kind-dev -n observability get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
 EOF
 }
 
@@ -172,6 +186,7 @@ main() {
   install_argocd
   register_clusters
   create_portal_token
+  create_grafana_secret
   kubectl --context "$DEV" apply -f bootstrap/root-app.yaml
   print_summary
 }

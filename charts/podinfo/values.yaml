@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/stefanprodan/podinfo
   # Shared by all environments: promotion moves this value between branches.
-  tag: "6.9.2"
+  tag: "6.9.3"
 
 # Shown on the podinfo UI so you can tell environments apart.
 message: ""
