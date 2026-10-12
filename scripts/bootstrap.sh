@@ -7,7 +7,7 @@ DEV=kind-dev
 PROD=kind-prod
 
 check_prereqs() {
-  for bin in docker kind kubectl helm; do
+  for bin in docker kind kubectl helm curl; do
     command -v "$bin" >/dev/null || { echo "missing prerequisite: $bin"; exit 1; }
   done
   docker info >/dev/null 2>&1 || { echo "docker is not running"; exit 1; }
