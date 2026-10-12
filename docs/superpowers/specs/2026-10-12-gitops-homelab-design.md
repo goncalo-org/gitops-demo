@@ -108,6 +108,7 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 ### Traefik
 - Service `NodePort`, `web` entrypoint on nodePort `30080`.
 - Dashboard enabled and exposed at `traefik.<env>.localhost`.
+- The internal `traefik` entrypoint (API, port 9000) is also exposed on nodePort `30900` in both clusters. It has **no** kind host port mapping, so it's reachable only on the Docker `kind` network, for the portal widgets.
 
 ### Argo CD
 - Installed by bootstrap (not self-managed in v1).
@@ -116,15 +117,19 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 
 ### Homepage
 - Upstream Homepage Helm chart, deployed to `kind-dev` only, with an Ingress at `portal.dev.localhost`.
-- Tiles: Argo CD (widget: app sync and health counts using `homepage-argocd-token`, via the in-cluster `argocd-server` Service), Traefik dev (widget: routers and services, via the in-cluster Traefik Service), and links for Traefik prod and podinfo dev and prod.
-- The Traefik prod tile is a link only: the portal pod can't reach `*.prod.localhost`, which resolves to the pod itself.
+- Tiles:
+  - Argo CD: widget with app sync and health counts, using `homepage-argocd-token`, via the in-cluster `argocd-server` Service.
+  - Traefik dev: widget with routers and services, via `http://kind-dev-control-plane:30900`.
+  - Traefik prod: widget with routers and services, via `http://kind-prod-control-plane:30900`.
+  - podinfo dev and prod: links.
+- Widgets use the Docker-network node hostnames, not `*.localhost`: inside a pod, `localhost` is the pod itself. This is the same name resolution Argo CD uses to reach prod.
 
 ## Promotion flow
 1. A PR changes `image.tag` in `envs/dev/podinfo.yaml`. On merge, dev syncs; verify at `podinfo.dev.localhost:8080`.
 2. A PR sets the same tag in `envs/prod/podinfo.yaml`. On merge, prod syncs.
 
 ## Security
-- Port mappings bind to `127.0.0.1` only.
+- Port mappings bind to `127.0.0.1` only. The Traefik API nodePort `30900` isn't mapped to the host at all.
 - No secrets in Git: the Argo CD admin password stays in its generated Secret; the prod cluster token and the portal token are created at bootstrap.
 - The portal uses a readonly Argo CD account.
 
