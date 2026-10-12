@@ -242,9 +242,7 @@ server:
   retention: 2d
   persistentVolume:
     size: 2Gi
-serverFiles:
-  prometheus.yml:
-    scrape_configs: []
+scrapeConfigs: null
 ```
 
 `envs/dev/loki.yaml`:
