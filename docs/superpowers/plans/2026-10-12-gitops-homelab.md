@@ -4,7 +4,7 @@
 
 **Goal:** Two local kind clusters (`dev`, `prod`) managed from GitHub by one Argo CD, running Traefik, a Helm-charted podinfo app, and a Homepage portal.
 
-**Architecture:** `scripts/bootstrap.sh` creates the clusters, installs Argo CD into `kind-dev` with Helm, registers both clusters as labelled cluster Secrets, and applies one root Application. From then on everything is reconciled from `main` on GitHub: ApplicationSets with a cluster generator create one Traefik and one podinfo app per cluster, using `envs/<env>/*.yaml` for values.
+**Architecture:** `scripts/bootstrap.sh` creates the clusters, installs Argo CD into `kind-dev` with Helm, registers both clusters as labelled cluster Secrets, and applies one root Application. From then on everything is reconciled from the `release` branch on GitHub: ApplicationSets with a cluster generator create one Traefik and one podinfo app per cluster, using `envs/<env>/*.yaml` for values.
 
 **Tech Stack:** kind v0.32, kubectl, Helm v3.18, Argo CD (chart `argo/argo-cd` 10.10.3), Traefik (chart `traefik/traefik` 41.7.1), Homepage (chart `jameswynn/homepage` 2.1.0), podinfo image `ghcr.io/stefanprodan/podinfo`, bash, make.
 
@@ -14,7 +14,7 @@
 
 ## Read this first
 
-- **Work directly on `main` and push to `origin main`.** Argo CD only reads `main` on GitHub (`https://github.com/goncalo-org/gitops-demo.git`, public), so a feature branch or worktree would never be deployed. Pushing publishes to a public repo, so confirm with the user once before the first push in Task 5.
+- **Branches:** commit on `main`; Argo CD deploys only the `release` branch on GitHub (`https://github.com/goncalo-org/gitops-demo.git`, public). During Tasks 5–7, deploy by fast-forwarding `release` to `main`: `git push origin main main:release`. From Task 8 on, `release` only moves through `main → release` PRs merged with a merge commit (never squash, so `main` and `release` don't diverge). Work in this checkout, not a worktree: Argo CD never sees local branches. Pushing publishes to a public repo, so confirm with the user once before the first push in Task 5.
 - **"Tests" here** are `scripts/lint.sh` (chart rendering) and `scripts/smoke-test.sh` (the live lab). The smoke test is written in Task 4, before anything it checks exists. Each later task turns more of its checks green.
 - **Names:** kind clusters are `dev` and `prod`. kubectl contexts are `kind-dev` and `kind-prod`. Node containers on the Docker `kind` network are `dev-control-plane` and `prod-control-plane`.
 - **Ports:** host `127.0.0.1:8080` → dev node `30080`, and host `127.0.0.1:9080` → prod node `30080`. Traefik's API is on nodePort `30900` in both clusters and is **not** mapped to the host.
@@ -721,7 +721,7 @@ spec:
             valueFiles:
               - '$values/envs/{{index .metadata.labels "env"}}/traefik.yaml'
         - repoURL: https://github.com/goncalo-org/gitops-demo.git
-          targetRevision: main
+          targetRevision: release
           ref: values
       destination:
         server: '{{.server}}'
@@ -747,7 +747,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/goncalo-org/gitops-demo.git
-    targetRevision: main
+    targetRevision: release
     path: argocd
   destination:
     server: https://kubernetes.default.svc
@@ -772,14 +772,14 @@ main() {
 }
 ```
 
-- [ ] **Step 4: Commit and push (Argo CD reads from GitHub)**
+- [ ] **Step 4: Commit and push `main` and `release` (Argo CD reads `release` from GitHub)**
 
 Confirm with the user before this first push to the public repo.
 
 ```bash
 git add bootstrap/root-app.yaml argocd/traefik-appset.yaml envs/dev/traefik.yaml envs/prod/traefik.yaml scripts/bootstrap.sh
 git commit -m "feat: root app and Traefik in dev and prod via ApplicationSet" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push -u origin main
+git push -u origin main main:release
 ```
 
 - [ ] **Step 5: Bootstrap and run the smoke test**
@@ -836,7 +836,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/goncalo-org/gitops-demo.git
-        targetRevision: main
+        targetRevision: release
         path: charts/podinfo
         helm:
           releaseName: podinfo
@@ -858,7 +858,7 @@ spec:
 ```bash
 git add argocd/podinfo-appset.yaml
 git commit -m "feat: deploy podinfo to dev and prod via ApplicationSet" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+git push origin main main:release
 kubectl --context kind-dev -n argocd annotate application root argocd.argoproj.io/refresh=normal --overwrite
 ```
 
@@ -1027,7 +1027,7 @@ spec:
         valueFiles:
           - $values/envs/dev/homepage.yaml
     - repoURL: https://github.com/goncalo-org/gitops-demo.git
-      targetRevision: main
+      targetRevision: release
       ref: values
   destination:
     server: https://kubernetes.default.svc
@@ -1045,7 +1045,7 @@ spec:
 ```bash
 git add argocd/homepage-app.yaml envs/dev/homepage.yaml scripts/bootstrap.sh
 git commit -m "feat: Homepage portal with Argo CD and Traefik widgets" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+git push origin main main:release
 make up
 kubectl --context kind-dev -n argocd annotate application root argocd.argoproj.io/refresh=normal --overwrite
 make test
@@ -1098,9 +1098,16 @@ Then:
 git switch -c promote-podinfo-6.9.2
 git commit -am "chore: promote podinfo 6.9.2 to prod" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git push -u origin promote-podinfo-6.9.2
-gh pr create --fill
-gh pr merge --squash --delete-branch
+gh pr create --base main --fill
+gh pr merge --merge --delete-branch
 git switch main && git pull
+```
+
+Merging to `main` deploys nothing yet. Check that prod is still on 6.9.0 (re-run the Step 2 command), then deploy with a `main → release` PR:
+
+```bash
+gh pr create --base release --head main --title "release: podinfo 6.9.2 to prod" --body "Promote podinfo 6.9.2 to prod."
+gh pr merge --merge
 kubectl --context kind-dev -n argocd annotate application podinfo-prod argocd.argoproj.io/refresh=normal --overwrite
 ```
 
@@ -1147,12 +1154,14 @@ make down   # delete both clusters
 - `envs/<env>/`: Helm values per environment
 - `bootstrap/`, `clusters/`, `scripts/`: one-time setup
 
-## Promoting a release
+## Deploying and promoting
 
-1. PR: change `image.tag` in `envs/dev/podinfo.yaml`. Merge it, then verify on dev.
-2. PR: set the same tag in `envs/prod/podinfo.yaml`. Merge it, and prod syncs.
+Argo CD deploys the `release` branch only. Work lands on `main` first; a `main → release` PR (merged with a merge commit, not squash) is the deploy.
 
-Merging to `main` is deploying: every app auto-syncs with prune and self-heal.
+1. PR to `main`: change `image.tag` in `envs/dev/podinfo.yaml`. Then PR `main → release`; dev syncs. Verify on dev.
+2. PR to `main`: set the same tag in `envs/prod/podinfo.yaml`. Then PR `main → release`; prod syncs.
+
+Every app auto-syncs from `release` with prune and self-heal.
 ````
 
 - [ ] **Step 6: Commit and push**
@@ -1160,5 +1169,8 @@ Merging to `main` is deploying: every app auto-syncs with prune and self-heal.
 ```bash
 git add README.md
 git commit -m "docs: add README" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git push
+git push origin main
 ```
+
+The README doesn't affect the clusters, so it doesn't need a release PR. It reaches `release` with the next deploy.
+

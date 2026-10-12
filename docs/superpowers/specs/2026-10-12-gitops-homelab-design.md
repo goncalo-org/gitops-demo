@@ -16,7 +16,7 @@ A local DevOps homelab for learning Kubernetes and GitOps: two kind clusters (`d
 | GitOps controller | Argo CD, installed in `kind-dev`, manages both clusters | Native multi-cluster, ApplicationSets, UI |
 | Ingress controller | Traefik (Helm) | ingress-nginx was retired in March 2026 |
 | Developer portal | Homepage (gethomepage.dev), `kind-dev` only | Lightweight; Argo CD and Traefik widgets |
-| Git | Public GitHub repo, `main` branch only | No repository credentials needed |
+| Git | Public GitHub repo; work on `main`, Argo CD deploys the `release` branch | No repository credentials needed; deploying is an explicit step |
 
 ## Architecture
 
@@ -91,7 +91,7 @@ The only step that isn't GitOps. In order:
 The script uses `set -euo pipefail` and is idempotent, so re-running it resumes after a partial failure.
 
 ### Root app and ApplicationSets
-- `root-app` syncs the `argocd/` directory from `main`.
+- `root-app` syncs the `argocd/` directory from the `release` branch. All Applications use `targetRevision: release`.
 - `traefik-appset` and `podinfo-appset` use the **cluster generator** (selector: label `env` exists) and create `<app>-{{name}}` per cluster, reading `envs/{{metadata.labels.env}}/<app>.yaml`.
 - Traefik uses a multi-source Application: the upstream chart (`https://traefik.github.io/charts`) plus `$values` from this repo.
 - All apps: automated sync with `prune: true`, `selfHeal: true`, and `CreateNamespace=true`.
@@ -126,8 +126,9 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 - Widgets use the Docker-network node hostnames, not `*.localhost`: inside a pod, `localhost` is the pod itself. This is the same name resolution Argo CD uses to reach prod.
 
 ## Promotion flow
-1. A PR changes `image.tag` in `envs/dev/podinfo.yaml`. On merge, dev syncs; verify at `podinfo.dev.localhost:8080`.
-2. A PR sets the same tag in `envs/prod/podinfo.yaml`. On merge, prod syncs.
+Changes merge to `main` first; a `main → release` PR (merge commit, not squash) deploys them.
+1. A PR to `main` changes `image.tag` in `envs/dev/podinfo.yaml`; a `main → release` PR deploys it, and dev syncs. Verify at `podinfo.dev.localhost:8080`.
+2. A PR to `main` sets the same tag in `envs/prod/podinfo.yaml`; a `main → release` PR deploys it, and prod syncs.
 
 ## Security
 - Port mappings bind to `127.0.0.1` only. The Traefik API nodePort `30900` isn't mapped to the host at all.
