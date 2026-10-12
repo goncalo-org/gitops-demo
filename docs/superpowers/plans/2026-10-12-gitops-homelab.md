@@ -701,6 +701,11 @@ ingressRoute:
 # (a NodePort Service has no load balancer address to publish).
 additionalArguments:
   - --providers.kubernetesingress.ingressendpoint.ip=127.0.0.1
+# The chart's publishedService (default on) copies status from its LoadBalancer-less Service and wins over the ip above.
+providers:
+  kubernetesIngress:
+    publishedService:
+      enabled: false
 ```
 
 `envs/prod/traefik.yaml`:
@@ -728,6 +733,11 @@ ingressRoute:
 # (a NodePort Service has no load balancer address to publish).
 additionalArguments:
   - --providers.kubernetesingress.ingressendpoint.ip=127.0.0.1
+# The chart's publishedService (default on) copies status from its LoadBalancer-less Service and wins over the ip above.
+providers:
+  kubernetesIngress:
+    publishedService:
+      enabled: false
 ```
 
 - [ ] **Step 2: Write the ApplicationSet and the root app**
