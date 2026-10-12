@@ -1,0 +1,50 @@
+# Observability backends: dev only, following the release branch (like Homepage).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: observability-backends
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - name: prometheus
+            repoURL: https://prometheus-community.github.io/helm-charts
+            chart: prometheus
+            version: 29.36.1
+          - name: loki
+            repoURL: https://grafana.github.io/helm-charts
+            chart: loki
+            version: 7.3.0
+          - name: tempo
+            repoURL: https://grafana.github.io/helm-charts
+            chart: tempo
+            version: 1.24.4
+  template:
+    metadata:
+      name: '{{.name}}'
+    spec:
+      project: default
+      sources:
+        - repoURL: '{{.repoURL}}'
+          chart: '{{.chart}}'
+          targetRevision: '{{.version}}'
+          helm:
+            releaseName: '{{.name}}'
+            valueFiles:
+              - '$values/envs/dev/{{.name}}.yaml'
+        - repoURL: https://github.com/goncalo-org/gitops-demo.git
+          targetRevision: release
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: observability
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

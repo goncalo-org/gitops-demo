@@ -1,0 +1,20 @@
+alertmanager:
+  enabled: false
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+configmapReload:
+  prometheus:
+    enabled: false
+server:
+  extraFlags:
+    - web.enable-remote-write-receiver
+  retention: 2d
+  persistentVolume:
+    size: 2Gi
+serverFiles:
+  prometheus.yml:
+    scrape_configs: []
