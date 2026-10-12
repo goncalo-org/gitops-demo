@@ -12,3 +12,8 @@ ingress:
   host: podinfo.local
 
 resources: {}
+
+# Traces go to the cluster's Alloy agent (same address in every cluster).
+otel:
+  serviceName: podinfo
+  endpoint: http://alloy.observability.svc:4317

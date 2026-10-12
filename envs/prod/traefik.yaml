@@ -25,3 +25,18 @@ providers:
   kubernetesIngress:
     publishedService:
       enabled: false
+# Observability: OTLP traces to this cluster's Alloy; per-router metrics, scraped via annotations.
+tracing:
+  otlp:
+    enabled: true
+    grpc:
+      enabled: true
+      endpoint: alloy.observability.svc:4317
+      insecure: true
+metrics:
+  prometheus:
+    addRoutersLabels: true
+deployment:
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9100"
