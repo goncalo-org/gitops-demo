@@ -689,6 +689,7 @@ ports:
     expose:
       default: true
     nodePort: 30900      # API for portal widgets; not mapped to the host
+# Unauthenticated, read-only API; reachable only inside the Docker kind network (30900 isn't host-mapped).
 api:
   insecure: true         # serve the API on the "traefik" entrypoint
 ingressRoute:
@@ -711,6 +712,7 @@ ports:
     expose:
       default: true
     nodePort: 30900      # API for portal widgets; not mapped to the host
+# Unauthenticated, read-only API; reachable only inside the Docker kind network (30900 isn't host-mapped).
 api:
   insecure: true         # serve the API on the "traefik" entrypoint
 ingressRoute:
@@ -751,9 +753,9 @@ spec:
           helm:
             releaseName: traefik
             valueFiles:
-              - '$values/envs/{{index .metadata.labels "env"}}/traefik.yaml'
+              - '$values/envs/{{.metadata.labels.env}}/traefik.yaml'
         - repoURL: https://github.com/goncalo-org/gitops-demo.git
-          targetRevision: '{{index .metadata.annotations "branch"}}'
+          targetRevision: '{{.metadata.annotations.branch}}'
           ref: values
       destination:
         server: '{{.server}}'
@@ -868,12 +870,12 @@ spec:
       project: default
       source:
         repoURL: https://github.com/goncalo-org/gitops-demo.git
-        targetRevision: '{{index .metadata.annotations "branch"}}'
+        targetRevision: '{{.metadata.annotations.branch}}'
         path: charts/podinfo
         helm:
           releaseName: podinfo
           valueFiles:
-            - '../../envs/{{index .metadata.labels "env"}}/podinfo.yaml'
+            - '../../envs/{{.metadata.labels.env}}/podinfo.yaml'
       destination:
         server: '{{.server}}'
         namespace: podinfo

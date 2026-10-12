@@ -94,6 +94,8 @@ The script uses `set -euo pipefail` and is idempotent, so re-running it resumes 
 ### Root app and ApplicationSets
 - `root-app` syncs the `argocd/` directory from the `release` branch, so new or changed ApplicationSets land via `develop → release`. The Homepage app (dev only) also follows `release`.
 - `traefik-appset` and `podinfo-appset` use the **cluster generator** (selector: label `env` exists) and create `<app>-{{name}}` per cluster, reading `envs/{{metadata.labels.env}}/<app>.yaml` from the branch in the cluster's `branch` annotation (dev → `release`, prod → `main`).
+- Templates use plain field access (`{{.metadata.annotations.branch}}`, `{{.metadata.labels.env}}`) with `missingkey=error`, so a cluster Secret missing either one fails loudly. It never silently falls back to the default branch.
+- Known trade-off (accepted for v1): because `root-app` follows `release`, a change to an ApplicationSet *definition* reaches prod's Applications when it lands on `release`. Examples are the Traefik chart version and the sync policy. Values files and the in-repo podinfo chart are still gated by `main`. To gate definitions as well later, run one root app per cluster.
 - Traefik uses a multi-source Application: the upstream chart (`https://traefik.github.io/charts`) plus `$values` from this repo.
 - All apps: automated sync with `prune: true`, `selfHeal: true`, and `CreateNamespace=true`.
 
