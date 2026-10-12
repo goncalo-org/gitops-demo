@@ -1,0 +1,4 @@
+# Never commit certificates or keys (e.g. a proxy root CA passed via EXTRA_CA_FILE).
+*.pem
+*.crt
+*.key
