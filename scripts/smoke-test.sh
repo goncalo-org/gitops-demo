@@ -45,7 +45,7 @@ probe() {
     sh -c 'curl -s --max-time 10 "$@" || true' curl "$@" >/dev/null
   kubectl --context "$DEV" wait pod "$pod" --for=jsonpath='{.status.phase}'=Succeeded --timeout=60s >/dev/null 2>&1 || true
   kubectl --context "$DEV" logs "$pod" 2>/dev/null || true
-  kubectl --context "$DEV" delete pod "$pod" --wait=false >/dev/null
+  kubectl --context "$DEV" delete pod "$pod" --wait=false >/dev/null || true
 }
 
 # check_internal <node>: Traefik API reachable from inside kind-dev, as the portal widgets need.
@@ -68,7 +68,7 @@ check_data() {
     if grep -qE "$want" <<<"$body"; then echo "ok   $name"; return; fi
     if (( i < tries )); then sleep 10; fi
   done
-  echo "FAIL $name: no data from $url"
+  echo "FAIL $name: no data from $url (last: ${body:0:120})"
   failures=$((failures + 1))
 }
 
