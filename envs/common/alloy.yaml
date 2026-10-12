@@ -3,7 +3,7 @@ alloy:
   configMap:
     content: |
       // One agent per cluster: metrics, logs and traces, all labelled with the cluster name
-      // (CLUSTER env var, set per environment) and shipped to the backends in dev.
+      // (CLUSTER env var, set per environment) and shipped to the backends in dev. Assumes one node per cluster: on more nodes, scope discovery to the agent's node or enable clustering.
 
       discovery.kubernetes "pods" {
         role = "pod"
@@ -81,6 +81,11 @@ alloy:
       discovery.relabel "pod_logs" {
         targets = discovery.kubernetes.pods.targets
 
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex         = "observability|kube-system"
+          action        = "drop"
+        }
         rule {
           source_labels = ["__meta_kubernetes_namespace"]
           target_label  = "namespace"

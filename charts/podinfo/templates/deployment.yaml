@@ -12,6 +12,9 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9898"
       labels:
         app.kubernetes.io/name: podinfo
         app.kubernetes.io/instance: {{ .Release.Name }}
@@ -25,6 +28,10 @@ spec:
           env:
             - name: PODINFO_UI_MESSAGE
               value: {{ .Values.message | quote }}
+            - name: PODINFO_OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
           readinessProbe:
             httpGet:
               path: /readyz
