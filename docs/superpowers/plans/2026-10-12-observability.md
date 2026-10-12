@@ -1050,8 +1050,9 @@ alloy:
       }
 
       prometheus.scrape "pods" {
-        targets    = discovery.relabel.annotated_pods.output
-        forward_to = [prometheus.remote_write.dev.receiver]
+        targets      = discovery.relabel.annotated_pods.output
+        honor_labels = true // keep kube-state-metrics' own namespace/pod labels (not exported_*)
+        forward_to   = [prometheus.remote_write.dev.receiver]
       }
 
       // Container CPU/memory from each kubelet's cAdvisor endpoint.

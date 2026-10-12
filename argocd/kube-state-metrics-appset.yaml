@@ -1,0 +1,39 @@
+# kube-state-metrics in every registered cluster (scraped by that cluster's Alloy via annotations).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: env
+              operator: Exists
+  template:
+    metadata:
+      name: 'kube-state-metrics-{{.name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://prometheus-community.github.io/helm-charts
+        chart: kube-state-metrics
+        targetRevision: 8.6.0
+        helm:
+          releaseName: kube-state-metrics
+          valuesObject:
+            podAnnotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "8080"
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

@@ -1,0 +1,41 @@
+# Grafana Alloy in every registered cluster: shared pipeline + per-env CLUSTER name, gated by branch.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: alloy
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: env
+              operator: Exists
+  template:
+    metadata:
+      name: 'alloy-{{.name}}'
+    spec:
+      project: default
+      sources:
+        - repoURL: https://grafana.github.io/helm-charts
+          chart: alloy
+          targetRevision: 1.13.1
+          helm:
+            releaseName: alloy
+            valueFiles:
+              - '$values/envs/common/alloy.yaml'
+              - '$values/envs/{{.metadata.labels.env}}/alloy.yaml'
+        - repoURL: https://github.com/goncalo-org/gitops-demo.git
+          targetRevision: '{{.metadata.annotations.branch}}'
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

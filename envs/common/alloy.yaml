@@ -1,0 +1,163 @@
+# Shared by every cluster; envs/<env>/alloy.yaml only sets CLUSTER.
+alloy:
+  configMap:
+    content: |
+      // One agent per cluster: metrics, logs and traces, all labelled with the cluster name
+      // (CLUSTER env var, set per environment) and shipped to the backends in dev.
+
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.kubernetes "nodes" {
+        role = "node"
+      }
+
+      // ---------- Metrics ----------
+
+      // Pods that opt in with prometheus.io/scrape + prometheus.io/port annotations.
+      discovery.relabel "annotated_pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+          regex         = "true"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex         = "Running"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+          regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+          replacement   = "$1:$2"
+          target_label  = "__address__"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      prometheus.scrape "pods" {
+        targets      = discovery.relabel.annotated_pods.output
+        honor_labels = true // keep kube-state-metrics' own namespace/pod labels (not exported_*)
+        forward_to   = [prometheus.remote_write.dev.receiver]
+      }
+
+      // Container CPU/memory from each kubelet's cAdvisor endpoint.
+      prometheus.scrape "cadvisor" {
+        targets           = discovery.kubernetes.nodes.targets
+        scheme            = "https"
+        metrics_path      = "/metrics/cadvisor"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          insecure_skip_verify = true // kind's kubelet serves a self-signed certificate
+        }
+        forward_to = [prometheus.remote_write.dev.receiver]
+      }
+
+      prometheus.remote_write "dev" {
+        endpoint {
+          url = "http://dev-control-plane:30909/api/v1/write"
+        }
+        external_labels = {
+          cluster = sys.env("CLUSTER"),
+        }
+      }
+
+      // ---------- Logs ----------
+
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pod_logs.output
+        forward_to = [loki.write.dev.receiver]
+      }
+
+      loki.write "dev" {
+        endpoint {
+          url = "http://dev-control-plane:30310/loki/api/v1/push"
+        }
+        external_labels = {
+          cluster = sys.env("CLUSTER"),
+        }
+      }
+
+      // ---------- Traces ----------
+
+      otelcol.receiver.otlp "default" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+        output {
+          traces = [otelcol.processor.transform.cluster.input]
+        }
+      }
+
+      otelcol.processor.transform "cluster" {
+        error_mode = "ignore"
+        trace_statements {
+          context    = "resource"
+          statements = [string.format("set(resource.attributes[\"k8s.cluster.name\"], %q)", sys.env("CLUSTER"))]
+        }
+        output {
+          traces = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      otelcol.processor.batch "default" {
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "dev-control-plane:30317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
