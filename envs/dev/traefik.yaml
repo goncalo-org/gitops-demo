@@ -8,6 +8,7 @@ ports:
     expose:
       default: true
     nodePort: 30900      # API for portal widgets; not mapped to the host
+# Unauthenticated, read-only API; reachable only inside the Docker kind network (30900 isn't host-mapped).
 api:
   insecure: true         # serve the API on the "traefik" entrypoint
 ingressRoute:

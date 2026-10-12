@@ -24,9 +24,9 @@ spec:
           helm:
             releaseName: traefik
             valueFiles:
-              - '$values/envs/{{index .metadata.labels "env"}}/traefik.yaml'
+              - '$values/envs/{{.metadata.labels.env}}/traefik.yaml'
         - repoURL: https://github.com/goncalo-org/gitops-demo.git
-          targetRevision: '{{index .metadata.annotations "branch"}}'
+          targetRevision: '{{.metadata.annotations.branch}}'
           ref: values
       destination:
         server: '{{.server}}'
