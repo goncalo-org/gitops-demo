@@ -26,17 +26,18 @@ GitHub: goncalo-org/gitops-demo (public)
         ▼
 kind-dev ──────────────────────────────┐
   argocd (manages both clusters)       │ registered via docker network:
-  traefik      → 127.0.0.1:8080        │ https://kind-prod-control-plane:6443
+  traefik      → 127.0.0.1:8080        │ https://prod-control-plane:6443
   homepage (portal)                    ▼
   podinfo (1 replica)              kind-prod
                                      traefik → 127.0.0.1:9080
                                      podinfo (2 replicas)
 ```
 
+- kind cluster names are `dev` and `prod`: kubectl contexts `kind-dev`/`kind-prod`, node containers `dev-control-plane`/`prod-control-plane`.
 - Each kind cluster maps a host port (`127.0.0.1` only) to node port `30080`: dev → `8080`, prod → `9080`.
 - Traefik runs as a `NodePort` Service on `30080` (`web` entrypoint). Apps use standard `Ingress` with `ingressClassName: traefik`.
 - Hostnames under `*.localhost` resolve to 127.0.0.1, so no `/etc/hosts` edits.
-- Argo CD in `kind-dev` reaches prod through the internal Docker hostname `kind-prod-control-plane:6443`, not the host kubeconfig address.
+- Argo CD in `kind-dev` reaches prod through the internal Docker hostname `prod-control-plane:6443`, not the host kubeconfig address.
 
 ### URLs
 
@@ -82,7 +83,7 @@ The only step that isn't GitOps. In order:
 3. `helm upgrade --install` Argo CD into `kind-dev` (namespace `argocd`) with `bootstrap/argocd-values.yaml`.
 4. Register clusters as Argo CD cluster Secrets (`argocd.argoproj.io/secret-type: cluster`):
    - `dev`: server `https://kubernetes.default.svc`, label `env: dev`.
-   - `prod`: create a ServiceAccount `argocd-manager` with cluster-admin plus a long-lived token Secret in `kind-prod`; write a cluster Secret in `kind-dev` with server `https://kind-prod-control-plane:6443`, the bearer token and CA data, and label `env: prod`.
+   - `prod`: create a ServiceAccount `argocd-manager` with cluster-admin plus a long-lived token Secret in `kind-prod`; write a cluster Secret in `kind-dev` with server `https://prod-control-plane:6443`, the bearer token and CA data, and label `env: prod`.
 5. Generate a token for the readonly `portal` Argo CD account and store it as Secret `homepage-argocd-token` in namespace `homepage` on `kind-dev`.
 6. Apply `bootstrap/root-app.yaml`.
 7. Print the URLs and the command to read the Argo CD admin password.
@@ -108,7 +109,7 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 ### Traefik
 - Service `NodePort`, `web` entrypoint on nodePort `30080`.
 - Dashboard enabled and exposed at `traefik.<env>.localhost`.
-- The internal `traefik` entrypoint (API, port 9000) is also exposed on nodePort `30900` in both clusters. It has **no** kind host port mapping, so it's reachable only on the Docker `kind` network, for the portal widgets.
+- The internal `traefik` entrypoint (API, container port 8080) is also exposed on nodePort `30900` in both clusters. It has **no** kind host port mapping, so it's reachable only on the Docker `kind` network, for the portal widgets.
 
 ### Argo CD
 - Installed by bootstrap (not self-managed in v1).
@@ -119,8 +120,8 @@ A minimal chart using the `ghcr.io/stefanprodan/podinfo` image. Values: `replica
 - Upstream Homepage Helm chart, deployed to `kind-dev` only, with an Ingress at `portal.dev.localhost`.
 - Tiles:
   - Argo CD: widget with app sync and health counts, using `homepage-argocd-token`, via the in-cluster `argocd-server` Service.
-  - Traefik dev: widget with routers and services, via `http://kind-dev-control-plane:30900`.
-  - Traefik prod: widget with routers and services, via `http://kind-prod-control-plane:30900`.
+  - Traefik dev: widget with routers and services, via `http://dev-control-plane:30900`.
+  - Traefik prod: widget with routers and services, via `http://prod-control-plane:30900`.
   - podinfo dev and prod: links.
 - Widgets use the Docker-network node hostnames, not `*.localhost`: inside a pod, `localhost` is the pod itself. This is the same name resolution Argo CD uses to reach prod.
 
