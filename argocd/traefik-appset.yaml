@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: env
+              operator: Exists
+  template:
+    metadata:
+      name: 'traefik-{{.name}}'
+    spec:
+      project: default
+      sources:
+        - repoURL: https://traefik.github.io/charts
+          chart: traefik
+          targetRevision: 41.7.1
+          helm:
+            releaseName: traefik
+            valueFiles:
+              - '$values/envs/{{index .metadata.labels "env"}}/traefik.yaml'
+        - repoURL: https://github.com/goncalo-org/gitops-demo.git
+          targetRevision: '{{index .metadata.annotations "branch"}}'
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: traefik
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true   # Traefik CRDs are too large for client-side apply

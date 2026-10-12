@@ -131,6 +131,7 @@ main() {
   trust_extra_ca
   install_argocd
   register_clusters
+  kubectl --context "$DEV" apply -f bootstrap/root-app.yaml
 }
 
 main "$@"

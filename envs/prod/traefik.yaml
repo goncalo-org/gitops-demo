@@ -1,0 +1,17 @@
+service:
+  spec:
+    type: NodePort
+ports:
+  web:
+    nodePort: 30080      # kind maps this to 127.0.0.1:9080
+  traefik:
+    expose:
+      default: true
+    nodePort: 30900      # API for portal widgets; not mapped to the host
+api:
+  insecure: true         # serve the API on the "traefik" entrypoint
+ingressRoute:
+  dashboard:
+    enabled: true
+    matchRule: Host(`traefik.prod.localhost`)
+    entryPoints: ["web"]
