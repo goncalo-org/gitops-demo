@@ -697,6 +697,10 @@ ingressRoute:
     enabled: true
     matchRule: Host(`traefik.dev.localhost`)
     entryPoints: ["web"]
+# Write an address into Ingress status so Argo CD reports Ingresses Healthy
+# (a NodePort Service has no load balancer address to publish).
+additionalArguments:
+  - --providers.kubernetesingress.ingressendpoint.ip=127.0.0.1
 ```
 
 `envs/prod/traefik.yaml`:
@@ -720,6 +724,10 @@ ingressRoute:
     enabled: true
     matchRule: Host(`traefik.prod.localhost`)
     entryPoints: ["web"]
+# Write an address into Ingress status so Argo CD reports Ingresses Healthy
+# (a NodePort Service has no load balancer address to publish).
+additionalArguments:
+  - --providers.kubernetesingress.ingressendpoint.ip=127.0.0.1
 ```
 
 - [ ] **Step 2: Write the ApplicationSet and the root app**
