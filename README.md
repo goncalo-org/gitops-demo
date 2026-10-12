@@ -6,7 +6,7 @@ Local Kubernetes + GitOps homelab: two kind clusters (`dev`, `prod`) managed by 
 
 Docker (running), `kind`, `kubectl`, `helm`, `curl`, `make`. Optional: `gh`, for the promotion flow.
 
-Docker needs at least 4 CPUs and 6 GB of memory for both clusters (Colima: `colima start --cpu 4 --memory 6`).
+Docker needs at least 4 CPUs and 9 GB of memory for both clusters and the observability stack (Colima: `colima start --cpu 4 --memory 9`).
 
 Behind a TLS-intercepting proxy (e.g. Zscaler), pass its root CA so the kind nodes can pull images:
 `EXTRA_CA_FILE=/path/to/proxy-root-ca.pem make up`. Keep that file out of this repo.
@@ -24,6 +24,7 @@ make down   # delete both clusters
 |---|---|
 | http://portal.dev.localhost:8080 | Homepage portal |
 | http://argocd.dev.localhost:8080 | Argo CD (user `admin`; `make up` prints the command to read the password) |
+| http://grafana.dev.localhost:8080 | Grafana: metrics, logs and traces for both clusters (user `admin`; `make up` prints the command to read the password) |
 | http://traefik.dev.localhost:8080/dashboard/ | Traefik dashboard, dev |
 | http://traefik.prod.localhost:9080/dashboard/ | Traefik dashboard, prod |
 | http://podinfo.dev.localhost:8080 | podinfo, dev |
@@ -33,7 +34,8 @@ make down   # delete both clusters
 
 - `argocd/`: what the root app syncs (ApplicationSets plus the Homepage app)
 - `charts/podinfo/`: our app chart
-- `envs/<env>/`: Helm values per environment
+- `envs/<env>/`: Helm values per environment; `envs/common/` holds values shared by every cluster (the Alloy pipeline)
+- `platform/observability/`: dev-only manifests (backend NodePorts and the Grafana dashboard)
 - `bootstrap/`, `clusters/`, `scripts/`: one-time setup
 
 ## Deploying and promoting
