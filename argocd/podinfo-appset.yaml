@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: podinfo
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: env
+              operator: Exists
+  template:
+    metadata:
+      name: 'podinfo-{{.name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/goncalo-org/gitops-demo.git
+        targetRevision: '{{.metadata.annotations.branch}}'
+        path: charts/podinfo
+        helm:
+          releaseName: podinfo
+          valueFiles:
+            - '../../envs/{{.metadata.labels.env}}/podinfo.yaml'
+      destination:
+        server: '{{.server}}'
+        namespace: podinfo
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
