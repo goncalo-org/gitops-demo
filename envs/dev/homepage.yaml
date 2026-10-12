@@ -49,6 +49,10 @@ config:
         - podinfo prod:
             href: http://podinfo.prod.localhost:9080
             description: Sample app, prod
+    - Observability:
+        - Grafana:
+            href: http://grafana.dev.localhost:8080
+            description: Metrics, logs and traces for dev and prod
   settingsString: |
     title: GitOps Homelab
     headerStyle: boxed

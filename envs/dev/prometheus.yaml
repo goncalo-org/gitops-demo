@@ -15,4 +15,5 @@ server:
   retention: 2d
   persistentVolume:
     size: 2Gi
+# null (not {}) removes the chart's default scrape jobs: agents remote-write here instead. (Chart 29.x renders scrape_configs from this key; also setting serverFiles' scrape_configs crashed Prometheus with a duplicate key. With configmapReload off, config changes need a pod restart.)
 scrapeConfigs: null

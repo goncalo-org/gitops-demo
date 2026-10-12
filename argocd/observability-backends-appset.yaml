@@ -22,6 +22,10 @@ spec:
             repoURL: https://grafana.github.io/helm-charts
             chart: tempo
             version: 1.24.4
+          - name: grafana
+            repoURL: https://grafana.github.io/helm-charts
+            chart: grafana
+            version: 10.5.15
   template:
     metadata:
       name: '{{.name}}'
