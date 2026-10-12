@@ -616,11 +616,15 @@ check() {
 }
 
 # check_internal <node>: Traefik API reachable from inside kind-dev, as the portal widgets need.
+# (Runs a pod and reads its logs: `kubectl run --rm -i` loses stdout in this environment.)
 check_internal() {
-  local node=$1 code
-  code=$(kubectl --context "$DEV" run "probe-$node-$RANDOM" --rm -i --quiet --restart=Never \
-    --image=curlimages/curl:8.11.1 -- \
-    curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$node:30900/api/overview" 2>/dev/null || true)
+  local node=$1 pod="probe-$1" code
+  kubectl --context "$DEV" delete pod "$pod" --ignore-not-found >/dev/null
+  kubectl --context "$DEV" run "$pod" --restart=Never --image=curlimages/curl:8.11.1 --command -- \
+    sh -c "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://$node:30900/api/overview || true" >/dev/null
+  kubectl --context "$DEV" wait pod "$pod" --for=jsonpath='{.status.phase}'=Succeeded --timeout=60s >/dev/null 2>&1 || true
+  code=$(kubectl --context "$DEV" logs "$pod" 2>/dev/null || true)
+  kubectl --context "$DEV" delete pod "$pod" --wait=false >/dev/null
   if [[ "$code" == "200" ]]; then
     echo "ok   in-cluster http://$node:30900/api/overview"
   else
