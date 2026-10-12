@@ -1,0 +1,25 @@
+global:
+  # Also used as the Ingress hostname.
+  domain: argocd.dev.localhost
+
+configs:
+  params:
+    # Serve plain HTTP; Traefik terminates nothing (no TLS in v1).
+    server.insecure: true
+  cm:
+    # Readonly API account used by the Homepage widget.
+    accounts.portal: apiKey
+  rbac:
+    policy.csv: |
+      g, portal, role:readonly
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
