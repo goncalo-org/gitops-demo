@@ -175,7 +175,7 @@ done
 check_data metrics-dev  "$PROM?query=up%7Bcluster%3D%22dev%22%7D"  '"value":\[' 6
 check_data metrics-prod "$PROM?query=up%7Bcluster%3D%22prod%22%7D" '"value":\[' 6
 check_data logs-prod    "$LOKI?query=%7Bcluster%3D%22prod%22%7D&limit=1&since=10m" '"values":\[\[' 6
-check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
+check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22traefik%22%7D%20%3E%3E%20%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
 
 if (( failures > 0 )); then
   echo "$failures check(s) failed"; exit 1
@@ -1269,11 +1269,11 @@ If `metrics-prod` or `logs-prod` fails while dev passes, the prod → dev hop is
 
 In `scripts/lint.sh`, replace the two `assert` lines at the bottom with:
 ```bash
-assert dev  "replicas: 1" "host: podinfo.dev.localhost"  "ingressClassName: traefik" "value: \"dev\""  "PODINFO_OTEL_SERVICE_NAME" "prometheus.io/scrape"
-assert prod "replicas: 2" "host: podinfo.prod.localhost" "ingressClassName: traefik" "value: \"prod\"" "PODINFO_OTEL_SERVICE_NAME" "prometheus.io/scrape" "limits:"
+assert dev  "replicas: 1" "host: podinfo.dev.localhost"  "ingressClassName: traefik" "value: \"dev\""  "alloy.observability.svc:4317" "prometheus.io/scrape"
+assert prod "replicas: 2" "host: podinfo.prod.localhost" "ingressClassName: traefik" "value: \"prod\"" "alloy.observability.svc:4317" "prometheus.io/scrape" "limits:"
 ```
 Run: `make lint`
-Expected: `FAIL [dev]: missing 'PODINFO_OTEL_SERVICE_NAME'`.
+Expected: `FAIL [dev]: missing 'alloy.observability.svc:4317'`.
 
 - [ ] **Step 2: Instrument the podinfo chart**
 
@@ -1283,6 +1283,7 @@ Append to `charts/podinfo/values.yaml`:
 # Traces go to the cluster's Alloy agent (same address in every cluster).
 otel:
   serviceName: podinfo
+  # http:// = plaintext gRPC (Alloy's OTLP receiver has no TLS); clear it to disable trace export.
   endpoint: http://alloy.observability.svc:4317
 ```
 
