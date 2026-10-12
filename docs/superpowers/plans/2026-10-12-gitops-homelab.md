@@ -430,7 +430,7 @@ trust_extra_ca() {
   [[ -n "${EXTRA_CA_FILE:-}" ]] || return 0
   [[ -r "$EXTRA_CA_FILE" ]] || { echo "EXTRA_CA_FILE not readable: $EXTRA_CA_FILE"; exit 1; }
   for node in dev-control-plane prod-control-plane; do
-    if docker exec "$node" cmp -s /usr/local/share/ca-certificates/extra-ca.crt - <"$EXTRA_CA_FILE"; then
+    if docker exec -i "$node" cmp -s /usr/local/share/ca-certificates/extra-ca.crt - <"$EXTRA_CA_FILE"; then
       echo "extra CA already trusted on $node, skipping"; continue
     fi
     docker exec -i "$node" sh -c 'cat > /usr/local/share/ca-certificates/extra-ca.crt && update-ca-certificates >/dev/null && systemctl restart containerd' <"$EXTRA_CA_FILE"
