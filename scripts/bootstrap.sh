@@ -7,7 +7,7 @@ DEV=kind-dev
 PROD=kind-prod
 
 check_prereqs() {
-  for bin in docker kind kubectl helm argocd; do
+  for bin in docker kind kubectl helm; do
     command -v "$bin" >/dev/null || { echo "missing prerequisite: $bin"; exit 1; }
   done
   docker info >/dev/null 2>&1 || { echo "docker is not running"; exit 1; }
@@ -132,16 +132,20 @@ create_portal_token() {
     echo "portal token exists, skipping"; return
   fi
 
-  local pw pf cfg token
+  local pw token
   pw=$(kubectl --context "$DEV" -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
-  cfg=$(mktemp)   # keep the admin session out of ~/.config/argocd
   kubectl --context "$DEV" -n argocd port-forward svc/argocd-server 18080:80 >/dev/null 2>&1 &
-  pf=$!
-  trap 'kill $pf 2>/dev/null; rm -f "$cfg"' RETURN
+  pf=$!   # global so the EXIT trap can still see it
+  trap 'kill ${pf:-} 2>/dev/null || true' RETURN EXIT
   until curl -s -o /dev/null http://127.0.0.1:18080/healthz; do sleep 1; done
 
-  argocd login 127.0.0.1:18080 --plaintext --grpc-web --username admin --password "$pw" --config "$cfg" >/dev/null
-  token=$(argocd account generate-token --account portal --grpc-web --config "$cfg")
+  # REST instead of `argocd login`: the CLI's plaintext probe resets the kubectl port-forward.
+  local jwt
+  jwt=$(curl -fsS -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$pw\"}" \
+    http://127.0.0.1:18080/api/v1/session | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  token=$(curl -fsS -H "Authorization: Bearer $jwt" -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18080/api/v1/account/portal/token \
+    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  [ -n "$token" ] || { echo "failed to generate portal token"; return 1; }
   kubectl --context "$DEV" -n homepage create secret generic homepage-argocd-token --from-literal=token="$token"
 }
 
