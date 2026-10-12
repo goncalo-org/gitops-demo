@@ -94,7 +94,7 @@ done
 check_data metrics-dev  "$PROM?query=up%7Bcluster%3D%22dev%22%7D"  '"value":\[' 6
 check_data metrics-prod "$PROM?query=up%7Bcluster%3D%22prod%22%7D" '"value":\[' 6
 check_data logs-prod    "$LOKI?query=%7Bcluster%3D%22prod%22%7D&limit=1&since=10m" '"values":\[\[' 6
-check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
+check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22traefik%22%7D%20%3E%3E%20%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
 
 if (( failures > 0 )); then
   echo "$failures check(s) failed"; exit 1

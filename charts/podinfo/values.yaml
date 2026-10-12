@@ -16,4 +16,5 @@ resources: {}
 # Traces go to the cluster's Alloy agent (same address in every cluster).
 otel:
   serviceName: podinfo
+  # http:// = plaintext gRPC (Alloy's OTLP receiver has no TLS); clear it to disable trace export.
   endpoint: http://alloy.observability.svc:4317
