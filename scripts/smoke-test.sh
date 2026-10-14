@@ -3,6 +3,7 @@
 set -euo pipefail
 
 DEV=kind-dev
+PROD=kind-prod
 TIMEOUT=${TIMEOUT:-300}
 failures=0
 
@@ -72,6 +73,29 @@ check_data() {
   failures=$((failures + 1))
 }
 
+# check_k8sgpt: a pod with a nonexistent image in prod must get a K8sGPT Result within
+# 3 minutes, proving the analyzers run. (AI explanations are off, so `details` isn't checked.)
+# The namespace isn't managed by Argo CD.
+check_k8sgpt() {
+  local ns=k8sgpt-smoke deadline=$((SECONDS + 180)) sel found=""
+  sel='{.items[?(@.spec.name=="k8sgpt-smoke/broken")].metadata.name}'
+  kubectl --context "$PROD" delete namespace "$ns" --ignore-not-found >/dev/null
+  trap 'kubectl --context "$PROD" delete namespace k8sgpt-smoke --ignore-not-found --wait=false >/dev/null 2>&1' EXIT
+  kubectl --context "$PROD" create namespace "$ns" >/dev/null
+  kubectl --context "$PROD" -n "$ns" run broken --image=ghcr.io/stefanprodan/podinfo:0.0.0-missing >/dev/null
+  while (( SECONDS < deadline )); do
+    found=$(kubectl --context "$PROD" -n k8sgpt get results.core.k8sgpt.ai -o jsonpath="$sel" 2>/dev/null || true)
+    [[ -n "$found" ]] && break
+    sleep 10
+  done
+  if [[ -n "$found" ]]; then
+    echo "ok   k8sgpt-prod: Result $found"
+  else
+    echo "FAIL k8sgpt-prod: no Result for $ns/broken within 180s"
+    failures=$((failures + 1))
+  fi
+}
+
 PROM=http://dev-control-plane:30909/api/v1/query
 LOKI=http://dev-control-plane:30310/loki/api/v1/query_range
 TEMPO=http://dev-control-plane:30320/api/search
@@ -95,6 +119,7 @@ check_data metrics-dev  "$PROM?query=up%7Bcluster%3D%22dev%22%7D"  '"value":\[' 
 check_data metrics-prod "$PROM?query=up%7Bcluster%3D%22prod%22%7D" '"value":\[' 6
 check_data logs-prod    "$LOKI?query=%7Bcluster%3D%22prod%22%7D&limit=1&since=10m" '"values":\[\[' 6
 check_data traces-prod  "$TEMPO?q=%7Bresource.service.name%3D%22traefik%22%7D%20%3E%3E%20%7Bresource.service.name%3D%22podinfo%22%20%26%26%20resource.k8s.cluster.name%3D%22prod%22%7D&limit=1" '"traceID"' 6
+check_k8sgpt
 
 if (( failures > 0 )); then
   echo "$failures check(s) failed"; exit 1

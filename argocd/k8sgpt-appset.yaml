@@ -1,0 +1,41 @@
+# K8sGPT operator + its K8sGPT resource in every registered cluster, gated by branch.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: k8sgpt
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: env
+              operator: Exists
+  template:
+    metadata:
+      name: 'k8sgpt-{{.name}}'
+    spec:
+      project: default
+      sources:
+        - repoURL: https://charts.k8sgpt.ai/
+          chart: k8sgpt-operator
+          targetRevision: 0.2.29
+          helm:
+            releaseName: k8sgpt-operator
+            valueFiles:
+              - '$values/envs/common/k8sgpt-operator.yaml'
+        - repoURL: https://github.com/goncalo-org/gitops-demo.git
+          targetRevision: '{{.metadata.annotations.branch}}'
+          path: platform/k8sgpt
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: k8sgpt
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
