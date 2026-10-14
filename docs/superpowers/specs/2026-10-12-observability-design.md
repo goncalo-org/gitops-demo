@@ -5,7 +5,7 @@
 
 ## Goal
 
-Cluster observability and APM for both environments, viewed in one Grafana. It covers metrics (cluster and app health), logs from every pod, and distributed traces (Traefik → podinfo), all labelled `cluster=dev|prod`.
+Cluster observability and APM for both environments, viewed in one Grafana. It covers metrics (cluster and app health), logs from every pod outside `kube-system` and the stack's own `observability` namespace, and distributed traces (Traefik → podinfo), all labelled `cluster=dev|prod`.
 
 ## Decisions
 
@@ -52,7 +52,7 @@ The upstream charts for Loki and Tempo can't pin NodePorts, so all four are defi
 ### Agents (both clusters, ApplicationSets with the cluster generator, gated by branch)
 - **Grafana Alloy** (`argocd/alloy-appset.yaml`). The pipeline is shared in `envs/common/alloy.yaml`. `envs/<env>/alloy.yaml` sets only the `CLUSTER` env var:
   - **Metrics:** scrapes kubelet/cAdvisor, kube-state-metrics, and pods annotated `prometheus.io/scrape: "true"` (Traefik and podinfo). It remote-writes to Prometheus and buffers in its write-ahead log while the backend is unreachable.
-  - **Logs:** tails all pod logs through the Kubernetes API (`loki.source.kubernetes`, no hostPath) and pushes them to Loki.
+  - **Logs:** tails pod logs through the Kubernetes API (`loki.source.kubernetes`, no hostPath) and pushes them to Loki. It drops the `kube-system` and `observability` namespaces, which avoids a self-logging loop and protects Loki's volume.
   - **Traces:** an OTLP receiver (gRPC 4317, HTTP 4318) on Service `alloy.observability`, exporting to Tempo.
   - **Labels:** adds `cluster=<env>` to every metric and log stream, and the resource attribute `k8s.cluster.name=<env>` to every span.
 - **kube-state-metrics** (`argocd/kube-state-metrics-appset.yaml`): upstream chart, with only scrape annotations set inline.
@@ -93,12 +93,12 @@ The upstream charts for Loki and Tempo can't pin NodePorts, so all four are defi
 - Data checks from a probe pod in dev (the same run-pod/read-logs pattern as `check_internal`). Each one names its failure:
   - **Metrics:** a Prometheus query on `30909` for `up{cluster="dev"}` and `up{cluster="prod"}` must both return series.
   - **Logs:** a Loki query on `30310` for `{cluster="prod"}` over the last 10 minutes must return at least one line.
-  - **Traces:** the test first sends a request to `podinfo.prod.localhost:9080`. A Tempo search on `30320` for `resource.service.name="podinfo"` and `resource.k8s.cluster.name="prod"` must then return a trace within 60s (polled).
+  - **Traces:** the test first sends requests to `podinfo.prod.localhost:9080`. A Tempo TraceQL search on `30320` for `{resource.service.name="traefik"} >> {resource.service.name="podinfo" && resource.k8s.cluster.name="prod"}` must then return a trace within 60s (polled). It requires the real ingress → app path, so health-probe traces can't satisfy it.
 
-`make lint` is unchanged.
+`make lint` also asserts that the podinfo chart renders the OTLP endpoint (`alloy.observability.svc:4317`) and the scrape annotation.
 
 ## Failure handling
-- If dev's backends are unreachable, Alloy keeps retrying. Metrics are buffered in the write-ahead log, and logs and traces retry briefly; gaps are acceptable.
+- If dev's backends are unreachable, Alloy keeps retrying. Metrics are buffered in the write-ahead log, and logs and traces retry briefly; gaps are acceptable. The WAL and log positions live in the Alloy pod's own filesystem, so they survive config reloads but not a pod restart.
 - Agents and backends are separate Argo CD apps. A bad agent config on `main` (prod) can't break the backends, and the reverse is also true.
 - Apps can arrive in any order: agents retry until the backends exist.
 

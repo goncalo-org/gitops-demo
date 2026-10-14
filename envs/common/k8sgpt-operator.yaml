@@ -1,0 +1,4 @@
+# Log every Result, so Alloy ships findings to Loki (the operator's metrics sit behind kube-rbac-proxy).
+controllerManager:
+  manager:
+    enableResultLogging: true

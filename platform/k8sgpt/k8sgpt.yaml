@@ -1,0 +1,15 @@
+# K8sGPT in this cluster: built-in analyzers detect broken resources.
+# AI explanations are off: NTT DATA's proxy blocks the Ollama model download.
+# To enable later, set ai.enabled true and add backend/baseUrl/model (see the spec).
+apiVersion: core.k8sgpt.ai/v1alpha1
+kind: K8sGPT
+metadata:
+  name: k8sgpt
+  annotations:
+    # The CRD arrives with the operator in the same sync.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  version: v0.4.40
+  noCache: false
+  ai:
+    enabled: false
