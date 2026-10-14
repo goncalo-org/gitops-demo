@@ -55,8 +55,8 @@ The chart's ServiceMonitor and Grafana dashboard stay off: there's no Prometheus
 ### `platform/k8sgpt/k8sgpt.yaml`
 One `K8sGPT` resource (`core.k8sgpt.ai/v1alpha1`), named `k8sgpt-ollama`:
 - `ai.enabled: true`, `ai.backend: localai`, `ai.baseUrl: http://192.168.5.2:11434/v1`, `ai.model: llama3.2:3b`.
-- `noCache: true`; no remote cache.
-- `version` pinned to an exact K8sGPT release, the latest that works with operator 0.2.29, chosen during implementation.
+- `noCache: false`: the k8sgpt server's local cache stops it asking Ollama again about a finding it has already explained. No remote cache.
+- `version: v0.4.40`, the latest K8sGPT image on ghcr.io on 2026-10-14.
 - Annotation `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true`, so the first sync succeeds before the operator's CRDs exist.
 
 The resource is identical in both clusters, so there are no files per environment. It still moves develop → release → main through the branch-gated source.
