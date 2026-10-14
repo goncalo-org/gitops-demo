@@ -30,12 +30,26 @@ make down   # delete both clusters
 | http://podinfo.dev.localhost:8080 | podinfo, dev |
 | http://podinfo.prod.localhost:9080 | podinfo, prod |
 
+## Finding problems with K8sGPT
+
+K8sGPT scans both clusters continuously and stores each problem it finds as a `Result`:
+
+```bash
+kubectl --context kind-prod -n k8sgpt get results
+kubectl --context kind-prod -n k8sgpt get results -o jsonpath='{range .items[*]}{.spec.name}{": "}{.spec.kind}{"\n"}{end}'
+```
+
+The same findings appear in Grafana: Homelab overview → "K8sGPT findings".
+
+AI explanations are off (the corporate proxy blocks the local-model download). To turn them on once an approved model is reachable, set `ai.enabled: true` in `platform/k8sgpt/k8sgpt.yaml` — see the design spec's "Enabling AI later".
+
 ## Layout
 
 - `argocd/`: what the root app syncs (ApplicationSets plus the Homepage app)
 - `charts/podinfo/`: our app chart
 - `envs/<env>/`: Helm values per environment; `envs/common/` holds values shared by every cluster (the Alloy pipeline)
 - `platform/observability/`: dev-only manifests (backend NodePorts and the Grafana dashboard)
+- `platform/k8sgpt/`: the K8sGPT resource (same in both clusters)
 - `bootstrap/`, `clusters/`, `scripts/`: one-time setup
 
 ## Deploying and promoting
